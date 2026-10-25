@@ -18,7 +18,7 @@
     <!-- Persistent Left-Hand Sidebar -->
     <aside class="app-sidebar" id="app-sidebar">
       <div class="sidebar-header">
-        <div class="brand-symbol">RX</div>
+        <img src="/static/img/logo.png" alt="RECON-X" class="brand-symbol">
         <div class="brand-details">
           <h1>RECON-X</h1>
           <p>Database Security</p>
@@ -68,14 +68,6 @@
           API Docs (Swagger) &rarr;
         </a>
       </nav>
-
-      <div class="sidebar-footer">
-        <div class="footer-system-info">
-          <span>Engine v2.4 Enterprise</span>
-          <span class="env-tag"><span class="env-dot"></span> Production</span>
-        </div>
-        <div style="font-size:10px; color:var(--text-muted);">Fail-Closed Gating: Active</div>
-      </div>
     </aside>
 
     <!-- Main Application Wrapper -->
@@ -235,7 +227,7 @@
             <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:14px;">Active defense mechanisms protecting upstream data releases.</p>
 
             <div style="display:flex; flex-direction:column; gap:12px; font-size:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
+              <div class="guardrail-box" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
                 <div>
                   <strong style="color:var(--forest-deep); font-size:12px;">Fail-Closed Security Gate</strong>
                   <div style="font-size:10.5px; color:var(--text-secondary);">Blocked queries are prohibited from reaching DBMS</div>
@@ -243,7 +235,7 @@
                 <span class="decision-badge ALLOW">Enforced</span>
               </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
+              <div class="guardrail-box" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
                 <div>
                   <strong style="color:var(--forest-deep); font-size:12px;">Differential Privacy Noise</strong>
                   <div style="font-size:10.5px; color:var(--text-secondary);">Calibrated Laplace perturbation for restricted cohorts</div>
@@ -251,7 +243,7 @@
                 <span class="decision-badge RESTRICT">Laplace DP</span>
               </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
+              <div class="guardrail-box" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
                 <div>
                   <strong style="color:var(--forest-deep); font-size:12px;">Decoy Canary Honeypots</strong>
                   <div style="font-size:10.5px; color:var(--text-secondary);">4 active trap records across healthcare, banking, HR &amp; retail</div>
@@ -259,7 +251,7 @@
                 <span class="decision-badge ALLOW">4 Traps Ready</span>
               </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
+              <div class="guardrail-box" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-sm);">
                 <div>
                   <strong style="color:var(--forest-deep); font-size:12px;">Multi-Query Differencing</strong>
                   <div style="font-size:10.5px; color:var(--text-secondary);">Tracks sequential mathematical subtraction attacks</div>

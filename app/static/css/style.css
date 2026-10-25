@@ -134,16 +134,10 @@ body {
 .brand-symbol {
   width: 32px;
   height: 32px;
-  background-color: rgba(255,255,255,0.15);
-  color: #FFFFFF;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  object-fit: contain;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255,255,255,0.2);
+  display: block;
+  flex-shrink: 0;
 }
 
 .brand-details h1 {
@@ -252,48 +246,6 @@ body {
   border: none;
 }
 
-.sidebar-footer > div:last-child {
-  color: var(--sidebar-text-muted) !important;
-}
-
-
-.sidebar-footer {
-  padding: 14px 16px;
-  border-top: 1px solid var(--sidebar-border);
-  background-color: rgba(0,0,0,0.15);
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.footer-system-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--sidebar-text-muted);
-  font-size: 10.5px;
-}
-
-.env-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 7px;
-  background-color: rgba(255,255,255,0.10);
-  color: #AFDCDC;
-  border-radius: var(--radius-xs);
-  border: 1px solid rgba(255,255,255,0.12);
-}
-
-.env-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #4DBFC0;
-}
 
 /* ------------------------------------------------------------------------------
    Main Workspace & Top Navigation
@@ -328,6 +280,8 @@ body {
   gap: 8px;
   font-size: 13px;
 }
+
+
 
 .breadcrumb-root {
   color: var(--topbar-text-secondary);
@@ -912,14 +866,41 @@ body {
 
 .kpi-card {
   background-color: var(--surface-white);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid #D6D5CB;
   border-radius: var(--radius-md);
   padding: 16px 18px;
-  box-shadow: var(--shadow-subtle);
+  box-shadow: 0 2px 5px rgba(25, 45, 40, 0.05);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
+
+/* Distinct card visibility & separation for Overview Dashboard */
+#section-overview .section-grid-2 .card {
+  border: 1px solid #D6D5CB;
+  box-shadow: 0 2px 5px rgba(25, 45, 40, 0.05);
+}
+
+#section-overview .table-responsive {
+  border: 1px solid #D6D5CB;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-white);
+}
+
+#section-overview .custom-table th {
+  border-bottom: 1px solid #D6D5CB;
+}
+
+#section-overview .custom-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.guardrail-box,
+#section-overview .guardrail-box {
+  border: 1px solid #D6D5CB;
+  box-shadow: 0 1px 3px rgba(25, 45, 40, 0.03);
+}
+
 
 .kpi-header {
   display: flex;

@@ -101,8 +101,26 @@ def serve_shop():
 
 
 @app.get("/")
-def serve_index():
+def serve_intro():
+    intro_file = os.path.join(static_dir, "intro.html")
+    if os.path.exists(intro_file):
+        return FileResponse(intro_file)
+    index_file = os.path.join(static_dir, "index.html")
+    return FileResponse(index_file)
+
+
+@app.get("/dashboard")
+def serve_dashboard():
     index_file = os.path.join(static_dir, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
-    return {"message": "RECON-X Proxy Backend Running. Static UI initializing."}
+    return {"message": "RECON-X Proxy Dashboard not found."}
+
+
+@app.get("/intro")
+def serve_intro_alias():
+    intro_file = os.path.join(static_dir, "intro.html")
+    if os.path.exists(intro_file):
+        return FileResponse(intro_file)
+    return {"message": "RECON-X Intro page not found."}
+
