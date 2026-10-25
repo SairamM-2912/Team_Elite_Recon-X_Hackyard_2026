@@ -78,7 +78,10 @@ app.include_router(routes_pg.router)
 
 # Mount Static directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")
-os.makedirs(static_dir, exist_ok=True)
+try:
+    os.makedirs(static_dir, exist_ok=True)
+except OSError:
+    pass
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 

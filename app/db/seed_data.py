@@ -5,19 +5,26 @@ with realistic relational data, sensitive columns, and deliberate canary honeypo
 """
 import sqlite3
 import os
+import tempfile
 from typing import Dict, Any
 
+_is_vercel = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+_base_db_dir = tempfile.gettempdir() if _is_vercel else os.path.dirname(__file__)
+
 DB_PATHS = {
-    "healthcare": "app/db/healthcare.db",
-    "banking": "app/db/banking.db",
-    "corporate_hr": "app/db/corporate_hr.db",
-    "retail": "app/db/retail.db"
+    "healthcare": os.path.join(_base_db_dir, "healthcare.db"),
+    "banking": os.path.join(_base_db_dir, "banking.db"),
+    "corporate_hr": os.path.join(_base_db_dir, "corporate_hr.db"),
+    "retail": os.path.join(_base_db_dir, "retail.db")
 }
 
 
 def init_all_databases():
     """Create and seed SQLite databases for all four sectors."""
-    os.makedirs("app/db", exist_ok=True)
+    try:
+        os.makedirs(_base_db_dir, exist_ok=True)
+    except OSError:
+        pass
     _init_healthcare(DB_PATHS["healthcare"])
     _init_banking(DB_PATHS["banking"])
     _init_corporate_hr(DB_PATHS["corporate_hr"])
