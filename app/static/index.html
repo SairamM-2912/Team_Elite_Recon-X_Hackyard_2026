@@ -762,9 +762,10 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
               <div class="collapse-content">
-                <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:8px;">Execute read-only queries against PostgreSQL through the RECON-X proxy safety gate:</p>
-                <textarea class="code-editor-box" id="pg-sql-input" style="min-height:90px;" placeholder="SELECT * FROM information_schema.tables WHERE table_schema = 'public' LIMIT 5;"></textarea>
-                <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:8px;">Analyze queries separately; only approved whole-table counts can execute against PostgreSQL:</p>
+                <textarea class="code-editor-box" id="pg-sql-input" style="min-height:90px;" placeholder="SELECT COUNT(customer_id) FROM customers"></textarea>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+                  <button class="btn btn-secondary" onclick="App.inspectPgQueryOnly()" id="btn-pg-inspect">Analyze PostgreSQL</button>
                   <button class="btn btn-primary" onclick="App.runPgQuery()">Run PostgreSQL Query</button>
                 </div>
                 <div id="pg-query-results" style="margin-top:10px;"></div>

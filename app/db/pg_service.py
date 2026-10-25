@@ -4,72 +4,167 @@ app/db/pg_service.py
 Server-side PostgreSQL connection service for RECON-X.
 
 Credentials are read exclusively from environment variables (populated by
-python-dotenv from a local .env file).  The password is never logged, never
-returned in API responses, and never written to any string that might reach
-the frontend.
+python-dotenv from a local .env file).  The password is never logged or
+returned in API responses.
 
 Security rules enforced here
 -----------------------------
-- Only SELECT statements are permitted.
-- Multiple statements (semicolons inside the query body) are rejected.
+- Only parsed whole-table primary-key COUNT queries on approved demo tables
+  are permitted.
 - Result rows are capped at MAX_ROWS (50).
 - A per-statement timeout of STATEMENT_TIMEOUT_MS (5 000 ms) is applied via
   PostgreSQL SET LOCAL statement_timeout.
-- All connection errors are sanitised before being returned to the caller —
-  the raw exception message (which may contain the password in some psycopg
-  builds) is inspected and the password string is redacted just in case.
+- Connection errors are replaced with generic messages before reaching callers.
 """
 
 import os
-import re
 import time
-import logging
-
 import psycopg
-
-logger = logging.getLogger(__name__)
+from sqlglot import exp, parse
+from sqlglot.errors import ParseError
 
 MAX_ROWS: int = 50
 STATEMENT_TIMEOUT_MS: int = 5_000   # 5 seconds
 CONNECT_TIMEOUT_S: int = 5
+SAFE_COUNT_COLUMNS = {
+    "customers": "customer_id",
+    "employees": "employee_id",
+    "transactions": "transaction_id",
+    "audit_demo": "log_id",
+}
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _redact(text: str) -> str:
-    """Remove the PG password from an error string, just in case."""
-    pwd = os.environ.get("PGPASSWORD", "")
-    if pwd and pwd in text:
-        text = text.replace(pwd, "***")
-    return text
+def _identifier_name(identifier: exp.Expression | None) -> str | None:
+    if not isinstance(identifier, exp.Identifier):
+        return None
+    name = identifier.this
+    return name if identifier.args.get("quoted") else name.lower()
 
 
-def _build_connstring() -> str:
-    """Build a libpq connection string from environment variables."""
-    host = os.environ.get("PGHOST", "127.0.0.1")
-    port = os.environ.get("PGPORT", "5432")
-    dbname = os.environ.get("PGDATABASE", "reconx_demo")
-    user = os.environ.get("PGUSER", "reconx_reader")
-    password = os.environ.get("PGPASSWORD", "")
-    # password intentionally not logged
-    return (
-        f"host={host} port={port} dbname={dbname} "
-        f"user={user} password={password} "
-        f"connect_timeout={CONNECT_TIMEOUT_S} "
-        "application_name=reconx_proxy"
-    )
+def _safe_count_query(sql: str) -> tuple[str, str] | None:
+    """Accept one COUNT(primary_key) over one approved demo table."""
+    try:
+        statements = [statement for statement in parse(sql, read="postgres") if statement is not None]
+    except ParseError:
+        return None
+
+    if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+        return None
+
+    select = statements[0]
+    if any(
+        value not in (None, False, [], {})
+        for key, value in select.args.items()
+        if key not in {"expressions", "from_"}
+    ):
+        return None
+    if len(select.expressions) != 1:
+        return None
+
+    projection = select.expressions[0]
+    if isinstance(projection, exp.Alias):
+        if not isinstance(projection.args.get("alias"), exp.Identifier):
+            return None
+        projection = projection.this
+    if not isinstance(projection, exp.Count):
+        return None
+    if any(
+        value not in (None, False, [], {})
+        for key, value in projection.args.items()
+        if key not in {"this", "expressions", "big_int"}
+    ):
+        return None
+    if projection.args.get("distinct") or projection.args.get("expressions"):
+        return None
+
+    count_column = projection.this
+    if not isinstance(count_column, exp.Column):
+        return None
+    if count_column.args.get("db") or count_column.args.get("catalog"):
+        return None
+    column_name = _identifier_name(count_column.this)
+    if column_name is None:
+        return None
+
+    from_clause = select.args.get("from_")
+    table = from_clause.this if isinstance(from_clause, exp.From) else None
+    if not isinstance(table, exp.Table):
+        return None
+    if any(
+        value not in (None, False, [], {})
+        for key, value in table.args.items()
+        if key not in {"this", "db", "alias"}
+    ):
+        return None
+    alias = table.args.get("alias")
+    if alias and (
+        not isinstance(alias, exp.TableAlias)
+        or not isinstance(alias.this, exp.Identifier)
+        or alias.args.get("columns")
+    ):
+        return None
+
+    table_name = _identifier_name(table.this)
+    schema_name = _identifier_name(table.args.get("db"))
+    table_alias = _identifier_name(alias.this) if alias else None
+    column_qualifier = _identifier_name(count_column.args.get("table"))
+    if schema_name not in (None, "public") or table_name not in SAFE_COUNT_COLUMNS:
+        return None
+    if column_qualifier not in (None, table_name, table_alias):
+        return None
+    if SAFE_COUNT_COLUMNS[table_name] != column_name:
+        return None
+    return table_name, column_name
 
 
 def _open_connection() -> psycopg.Connection:
-    """Open a new psycopg3 connection.  Raises PgServiceError on failure."""
+    """Open a restricted connection in an explicitly read-only transaction."""
+    conn = None
     try:
-        conn = psycopg.connect(_build_connstring())
-        conn.autocommit = True   # read-only; autocommit avoids idle tx
+        user = os.environ.get("PGUSER", "reconx_demo_reader")
+        if user != "reconx_demo_reader":
+            raise PgServiceError("A restricted PostgreSQL application role is required.")
+        conn = psycopg.connect(
+            host=os.environ.get("PGHOST", "127.0.0.1"),
+            port=os.environ.get("PGPORT", "5432"),
+            dbname=os.environ.get("PGDATABASE", "reconx_demo"),
+            user=user,
+            password=os.environ.get("PGPASSWORD", ""),
+            connect_timeout=CONNECT_TIMEOUT_S,
+            application_name="reconx_proxy",
+        )
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}")
+            cur.execute(
+                """
+                SELECT r.rolsuper OR r.rolcreatedb OR r.rolcreaterole
+                       OR r.rolreplication OR r.rolbypassrls OR r.rolinherit
+                       OR EXISTS (
+                           SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid
+                       )
+                FROM pg_roles r
+                WHERE r.rolname = current_user
+                """
+            )
+            role_row = cur.fetchone()
+        if not role_row or role_row[0]:
+            conn.close()
+            raise PgServiceError("A non-superuser PostgreSQL application role is required.")
         return conn
-    except Exception as exc:
-        raise PgServiceError(_redact(str(exc))) from None
+    except PgServiceError:
+        if conn is not None and not conn.closed:
+            conn.close()
+        raise
+    except (psycopg.Error, ValueError, TypeError):
+        if conn is not None and not conn.closed:
+            conn.close()
+        raise PgServiceError("PostgreSQL connection unavailable.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -84,39 +179,14 @@ class PgServiceError(Exception):
 # SQL safety validation
 # ---------------------------------------------------------------------------
 
-# Allowed: leading whitespace, optional trailing whitespace, case-insensitive
-_SELECT_RE = re.compile(r"^\s*SELECT\b", re.IGNORECASE)
-
-
-def validate_sql(sql: str) -> None:
-    """
-    Raise PgServiceError if *sql* is not a safe, single SELECT statement.
-
-    Checks performed
-    ----------------
-    1. Must start with SELECT (after optional whitespace).
-    2. Must not contain multiple statements (no bare semicolons that are not
-       inside a string literal — we use a conservative heuristic).
-    3. Must not be empty.
-    """
-    if not sql or not sql.strip():
-        raise PgServiceError("Query is empty.")
-
-    if not _SELECT_RE.match(sql):
+def validate_sql(sql: str) -> tuple[str, str]:
+    """Return the approved table and key, or reject uncertain SQL shapes."""
+    shape = _safe_count_query(sql)
+    if shape is None:
         raise PgServiceError(
-            "Only SELECT statements are permitted. "
-            "INSERT, UPDATE, DELETE, DROP, CREATE, and similar "
-            "operations are not allowed."
+            "Query is outside the approved PostgreSQL demo read-only query profile."
         )
-
-    # Conservative semicolon check: strip string literals, then look for ';'
-    stripped = re.sub(r"'[^']*'", "", sql)   # remove single-quoted strings
-    stripped = re.sub(r'"[^"]*"', "", stripped)  # remove double-quoted identifiers
-    if ";" in stripped:
-        raise PgServiceError(
-            "Multiple SQL statements are not permitted. "
-            "Remove all semicolons from your query."
-        )
+    return shape
 
 
 # ---------------------------------------------------------------------------
@@ -147,15 +217,15 @@ class PgService:
         }
         """
         db = os.environ.get("PGDATABASE", "reconx_demo")
-        user = os.environ.get("PGUSER", "reconx_reader")
+        user = os.environ.get("PGUSER", "reconx_demo_reader")
         host = os.environ.get("PGHOST", "127.0.0.1")
         t0 = time.monotonic()
+        conn = None
         try:
             conn = _open_connection()
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 cur.fetchone()
-            conn.close()
             latency_ms = round((time.monotonic() - t0) * 1000, 2)
             return {
                 "healthy": True,
@@ -165,15 +235,19 @@ class PgService:
                 "host": host,
                 "error": None,
             }
-        except PgServiceError as exc:
+        except (PgServiceError, psycopg.Error):
             return {
                 "healthy": False,
                 "latency_ms": None,
                 "db": db,
                 "user": user,
                 "host": host,
-                "error": str(exc),
+                "error": "PostgreSQL connection unavailable.",
             }
+        finally:
+            if conn is not None and not conn.closed:
+                conn.rollback()
+                conn.close()
 
     # ---- schema introspection ---------------------------------------------
 
@@ -194,61 +268,55 @@ class PgService:
             ]
         }
         """
+        conn = None
         try:
             conn = _open_connection()
-            tables: list[dict] = []
-
             with conn.cursor() as cur:
-                # Tables
                 cur.execute(
                     """
-                    SELECT table_schema, table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                      AND table_type   = 'BASE TABLE'
-                    ORDER BY table_name
+                    SELECT allowed.table_name, c.column_name, c.data_type
+                    FROM (
+                        VALUES
+                            ('customers', 'customer_id'),
+                            ('employees', 'employee_id'),
+                            ('transactions', 'transaction_id'),
+                            ('audit_demo', 'log_id')
+                    ) AS allowed(table_name, column_name)
+                    JOIN information_schema.columns AS c
+                      ON c.table_schema = 'public'
+                     AND c.table_name = allowed.table_name
+                     AND c.column_name = allowed.column_name
+                    ORDER BY allowed.table_name
                     """
                 )
-                table_rows = cur.fetchall()
+                column_rows = cur.fetchall()
 
-                for schema_name, table_name in table_rows:
-                    # Columns for this table
-                    cur.execute(
-                        """
-                        SELECT column_name, data_type
-                        FROM information_schema.columns
-                        WHERE table_schema = %s
-                          AND table_name   = %s
-                        ORDER BY ordinal_position
-                        """,
-                        (schema_name, table_name),
-                    )
-                    columns = [
-                        {"name": col[0], "type": col[1]}
-                        for col in cur.fetchall()
-                    ]
-                    tables.append(
-                        {
-                            "schema": schema_name,
-                            "table": table_name,
-                            "columns": columns,
-                        }
-                    )
-
-            conn.close()
+            tables = [
+                {
+                    "schema": "public",
+                    "table": table_name,
+                    "columns": [{"name": column_name, "type": data_type}],
+                }
+                for table_name, column_name, data_type in column_rows
+                if SAFE_COUNT_COLUMNS.get(table_name) == column_name
+            ]
             return {"tables": tables}
 
-        except PgServiceError as exc:
-            raise
-        except Exception as exc:
-            raise PgServiceError(_redact(str(exc))) from None
+        except PgServiceError:
+            raise PgServiceError("PostgreSQL schema is unavailable.") from None
+        except psycopg.Error:
+            raise PgServiceError("PostgreSQL schema is unavailable.") from None
+        finally:
+            if conn is not None and not conn.closed:
+                conn.rollback()
+                conn.close()
 
     # ---- safe query execution ---------------------------------------------
 
     def execute_safe_query(self, sql: str) -> dict:
         """
-        Validate *sql*, execute it (SELECT only), and return at most MAX_ROWS
-        rows.
+        Validate and execute an allowlisted aggregate, returning at most
+        MAX_ROWS result rows.
 
         Returns
         -------
@@ -263,6 +331,7 @@ class PgService:
         """
         validate_sql(sql)
 
+        conn = None
         try:
             conn = _open_connection()
 
@@ -274,8 +343,6 @@ class PgService:
                 cur.execute(sql)
                 columns = [desc.name for desc in cur.description] if cur.description else []
                 rows = cur.fetchmany(MAX_ROWS + 1)   # fetch one extra to detect truncation
-
-            conn.close()
 
             truncated = len(rows) > MAX_ROWS
             rows = rows[:MAX_ROWS]
@@ -300,8 +367,12 @@ class PgService:
             raise PgServiceError(
                 f"Query exceeded the {STATEMENT_TIMEOUT_MS // 1000}-second timeout and was cancelled."
             ) from None
-        except Exception as exc:
-            raise PgServiceError(_redact(str(exc))) from None
+        except psycopg.Error:
+            raise PgServiceError("PostgreSQL query could not be completed.") from None
+        finally:
+            if conn is not None and not conn.closed:
+                conn.rollback()
+                conn.close()
 
     # ---- configuration summary (no secrets) --------------------------------
 
@@ -311,6 +382,6 @@ class PgService:
             "host": os.environ.get("PGHOST", "127.0.0.1"),
             "port": os.environ.get("PGPORT", "5432"),
             "db": os.environ.get("PGDATABASE", "reconx_demo"),
-            "user": os.environ.get("PGUSER", "reconx_reader"),
+            "user": os.environ.get("PGUSER", "reconx_demo_reader"),
             "configured": bool(os.environ.get("PGPASSWORD")),
         }

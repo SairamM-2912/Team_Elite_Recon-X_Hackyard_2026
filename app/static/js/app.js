@@ -1083,6 +1083,31 @@ const App = {
     }
   },
 
+  async inspectPgQueryOnly() {
+    const sql = document.getElementById('pg-sql-input')?.value.trim();
+    if (!sql) return this.showToast('Please enter a SQL query');
+
+    const btn = document.getElementById('btn-pg-inspect');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/pg/inspect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql })
+      });
+      if (!res.ok) return this.showToast('PostgreSQL analysis failed');
+      const data = await res.json();
+      this.renderInspectionIntelligence(data);
+      this.showToast(data.query_is_approved
+        ? 'PostgreSQL analysis completed (no database query executed)'
+        : 'PostgreSQL query is outside the approved demo profile');
+    } catch (e) {
+      this.showToast('PostgreSQL analysis request failed');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  },
+
   async runPgQuery() {
     const input = document.getElementById('pg-sql-input');
     const sql = input?.value.trim();

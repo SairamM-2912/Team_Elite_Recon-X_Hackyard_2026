@@ -50,12 +50,21 @@ class SecurityDecision:
 
 
 class SessionQueryRecord:
-    def __init__(self, query: str, parsed: ParsedQuery, timestamp: float, decision: str, estimated_rows: Optional[int] = None):
+    def __init__(
+        self,
+        query: str,
+        parsed: ParsedQuery,
+        timestamp: float,
+        decision: str,
+        estimated_rows: Optional[int] = None,
+        source: Optional[str] = None,
+    ):
         self.query = query
         self.parsed = parsed
         self.timestamp = timestamp
         self.decision = decision
         self.estimated_rows = estimated_rows
+        self.source = source
 
 
 class SecurityEngine:
@@ -75,25 +84,40 @@ class SecurityEngine:
 
     def get_session_history(self, session_id: str) -> List[Dict[str, Any]]:
         records = self.session_histories.get(session_id, [])
-        return [
-            {
-                "query": r.query,
-                "timestamp": r.timestamp,
-                "decision": r.decision,
-                "tables": r.parsed.tables,
-                "columns": r.parsed.columns,
-                "predicates": [p.get("raw", "") for p in r.parsed.predicates],
-                "aggregates": r.parsed.aggregates,
-                "estimated_rows": r.estimated_rows
-            }
-            for r in records
-        ]
+        history = []
+        for record in records:
+            is_pg = record.source == "postgresql"
+            history.append({
+                "query": "[PostgreSQL query redacted]" if is_pg else record.query,
+                "timestamp": record.timestamp,
+                "decision": record.decision,
+                "tables": record.parsed.tables,
+                "columns": record.parsed.columns,
+                "predicates": (
+                    ["[redacted]"] if is_pg and record.parsed.predicates
+                    else [p.get("raw", "") for p in record.parsed.predicates]
+                ),
+                "aggregates": (
+                    [{"func": aggregate["func"], "arg": "[redacted]"} for aggregate in record.parsed.aggregates]
+                    if is_pg else record.parsed.aggregates
+                ),
+                "estimated_rows": record.estimated_rows,
+            })
+        return history
 
-    def record_session_query(self, session_id: str, query: str, parsed: ParsedQuery, decision: str, estimated_rows: Optional[int] = None):
+    def record_session_query(
+        self,
+        session_id: str,
+        query: str,
+        parsed: ParsedQuery,
+        decision: str,
+        estimated_rows: Optional[int] = None,
+        source: Optional[str] = None,
+    ):
         if session_id not in self.session_histories:
             self.session_histories[session_id] = []
         self.session_histories[session_id].append(
-            SessionQueryRecord(query, parsed, time.time(), decision, estimated_rows)
+            SessionQueryRecord(query, parsed, time.time(), decision, estimated_rows, source)
         )
         # Cap session history at 50 queries to prevent unbounded memory growth
         if len(self.session_histories[session_id]) > 50:
