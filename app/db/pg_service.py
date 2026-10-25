@@ -17,9 +17,28 @@ Security rules enforced here
 - Connection errors are replaced with generic messages before reaching callers.
 """
 
+from __future__ import annotations
+
 import os
 import time
-import psycopg
+
+try:
+    import psycopg
+except ImportError:
+    class _UnavailablePsycopg:
+        class Error(Exception):
+            pass
+
+        class errors:
+            class QueryCanceled(Exception):
+                pass
+
+        @staticmethod
+        def connect(**kwargs):
+            raise PgServiceError("PostgreSQL driver is unavailable.")
+
+    psycopg = _UnavailablePsycopg()
+
 from sqlglot import exp, parse
 from sqlglot.errors import ParseError
 
