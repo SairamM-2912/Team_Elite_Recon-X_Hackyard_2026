@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "RECON-X — Database Security Companion",
+  "version": "1.0.0",
+  "description": "Compact Database Security Status Panel and Inference Defense Companion for RECON-X Proxy.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "RECON-X Security Panel",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

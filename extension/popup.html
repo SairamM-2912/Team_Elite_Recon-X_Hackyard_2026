@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RECON-X — Security Panel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="extension-mode">
+  <div class="recon-panel" id="recon-panel">
+    
+    <!-- Header: Brand & Connection Status -->
+    <header class="panel-header">
+      <div class="panel-brand">
+        <div class="brand-badge">RX</div>
+        <div>
+          <div class="brand-name">RECON-X</div>
+          <div style="font-size:9px; color:var(--secondary-text); font-weight:500;">Security Companion</div>
+        </div>
+      </div>
+      <div id="conn-status-pill" class="header-status-pill">
+        <span class="status-dot"></span>
+        <span id="conn-status-text">Connected</span>
+      </div>
+    </header>
+
+    <!-- Top Metadata: Database & Protection State -->
+    <section class="panel-section" style="background-color:#FAFAFA;">
+      <div class="meta-row">
+        <span class="meta-label">Database:</span>
+        <div class="meta-value">
+          <select id="db-selector" class="select-compact">
+            <option value="healthcare">Healthcare (EHR)</option>
+            <option value="banking">Banking (Accounts)</option>
+            <option value="corporate_hr">Corporate HR (Salaries)</option>
+            <option value="retail">Retail (Customers)</option>
+            <option value="upstream_pg_demo">PostgreSQL (Upstream)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="meta-row" style="margin-top:4px;">
+        <span class="meta-label">Protection:</span>
+        <div class="meta-value">
+          <span id="protection-switch" class="switch-pill active">
+            <span class="status-dot"></span>
+            <span id="protection-text">Active</span>
+          </span>
+          <span style="font-size:10px; color:var(--secondary-text); margin-left:4px;" id="latency-text">1.2 ms</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Current Query Risk & Decision Box -->
+    <section class="panel-section">
+      <div style="font-size:10px; font-weight:700; color:var(--secondary-text); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px;">
+        Current Query Risk
+      </div>
+      
+      <div id="risk-card" class="risk-card ALLOW">
+        <div class="risk-header">
+          <div style="display:flex; align-items:baseline; gap:4px;">
+            <span style="font-size:10px; color:var(--secondary-text); font-weight:600;">Score:</span>
+            <span id="risk-score" class="risk-score-badge" style="color:var(--success);">0 / 100</span>
+          </div>
+          <span id="decision-badge" class="decision-pill ALLOW">ALLOW</span>
+        </div>
+        <div id="risk-reason" class="risk-reason">
+          Query conforms to security policy. No inference patterns detected.
+        </div>
+      </div>
+
+      <!-- Result Box -->
+      <div id="result-box" class="result-box" style="display:none;"></div>
+    </section>
+
+    <!-- Actions Section: SQL Input & Controls -->
+    <section class="panel-section">
+      <div style="font-size:10px; font-weight:700; color:var(--secondary-text); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+        Query Actions
+      </div>
+
+      <!-- Quick Preset Attack / Test Scenarios -->
+      <div class="scenarios-scroll" id="scenarios-container"></div>
+
+      <textarea id="sql-input" class="sql-box" rows="2" placeholder="SELECT * FROM table WHERE ..."></textarea>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px;">
+        <button class="btn btn-secondary btn-sm" id="btn-analyze">
+          Analyze Query
+        </button>
+        <button class="btn btn-primary btn-sm" id="btn-run">
+          Run Query (Safe)
+        </button>
+      </div>
+    </section>
+
+    <!-- Recent Security Events Section (Latest 3–5) -->
+    <section class="panel-section">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="font-size:10px; font-weight:700; color:var(--secondary-text); text-transform:uppercase; letter-spacing:0.5px;">
+          Recent Security Events
+        </span>
+        <span id="events-count" style="font-size:10px; color:var(--secondary-text); font-weight:600;">0 events</span>
+      </div>
+
+      <div class="events-list" id="events-list">
+        <div style="text-align:center; padding:6px 0; color:var(--secondary-text); font-size:10.5px;">
+          No security events recorded.
+        </div>
+      </div>
+    </section>
+
+    <!-- Expandable Section 1: Query History -->
+    <section class="panel-section">
+      <button class="accordion-toggle" id="history-toggle">
+        <span>View Query History</span>
+        <span id="history-arrow" style="font-size:10px;">▾</span>
+      </button>
+      <div id="history-body" class="accordion-body">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="font-size:10px; color:var(--secondary-text);">Session query sequence:</span>
+          <a href="#" style="font-size:10px; color:var(--primary-blue); text-decoration:none;" id="btn-clear-history">Clear</a>
+        </div>
+        <div id="history-list" style="display:flex; flex-direction:column; gap:4px; max-height:100px; overflow-y:auto;">
+          <div style="color:var(--secondary-text); font-size:10px;">No queries in active session.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Expandable Section 2: Settings -->
+    <section class="panel-section">
+      <button class="accordion-toggle" id="settings-toggle">
+        <span>Security Settings</span>
+        <span id="settings-arrow" style="font-size:10px;">▾</span>
+      </button>
+      <div id="settings-body" class="accordion-body">
+        <div class="meta-row">
+          <span class="meta-label">Active Policy:</span>
+          <select id="policy-select" class="select-compact">
+            <option value="BALANCED_PRIVACY">Balanced Privacy</option>
+            <option value="HIPAA_GDPR_STRICT">Strict (HIPAA/GDPR)</option>
+            <option value="PERMISSIVE_ANALYST">Permissive Analyst</option>
+            <option value="ZERO_TRUST">Zero-Trust</option>
+          </select>
+        </div>
+
+        <div class="meta-row" style="margin-top:4px;">
+          <span class="meta-label">User Identity:</span>
+          <select id="user-select" class="select-compact">
+            <option value="sec_admin">sec_admin (Admin)</option>
+            <option value="analyst_clara">analyst_clara (Analyst)</option>
+            <option value="ds_marcus">ds_marcus (Data Scientist)</option>
+            <option value="auditor_elena">auditor_elena (Auditor)</option>
+          </select>
+        </div>
+
+        <div class="meta-row" style="margin-top:4px;">
+          <span class="meta-label">Proxy Host:</span>
+          <input type="text" id="proxy-host-input" value="http://localhost:8000" style="width:130px; font-size:10px; padding:2px 4px; border:1px solid var(--border); border-radius:3px;">
+        </div>
+
+        <div class="meta-row" style="margin-top:4px;">
+          <span class="meta-label">Audit Log:</span>
+          <a href="#" style="font-size:10px; color:var(--primary-blue); text-decoration:none; font-weight:600;" id="btn-verify-audit">Verify Integrity</a>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="micro-toast" class="micro-toast"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RECON-X — Enterprise Database Security Platform</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- Persistent Left-Hand Sidebar -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-header">
+        <div class="brand-symbol">RX</div>
+        <div class="brand-details">
+          <h1>RECON-X</h1>
+          <p>Database Security</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-category">Monitoring</div>
+        <a class="nav-link active" onclick="App.navigateTo('overview')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Overview
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('inspector')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          SQL Inspector
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('threats')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Threat Detection
+          <span class="nav-badge danger" id="sidebar-threats-badge">0</span>
+        </a>
+
+        <div class="nav-category">Intelligence & Events</div>
+        <a class="nav-link" onclick="App.navigateTo('history')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Query History
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('events')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          Security Events
+          <span class="nav-badge" id="sidebar-events-count">0</span>
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('analytics')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          Risk Analytics
+        </a>
+
+        <div class="nav-category">Governance</div>
+        <a class="nav-link" onclick="App.navigateTo('connections')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Database Connections
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('access')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Access Control
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('policies')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          Privacy Settings
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('audit')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Audit Logs
+        </a>
+        <a class="nav-link" onclick="App.navigateTo('settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Settings
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="footer-system-info">
+          <span>Engine v2.4 Enterprise</span>
+          <span class="env-tag"><span class="env-dot"></span> Production</span>
+        </div>
+        <div style="font-size:10px; color:var(--text-muted);">Fail-Closed Gating: Active</div>
+      </div>
+    </aside>
+
+    <!-- Main Application Wrapper -->
+    <div class="main-wrapper">
+      
+      <!-- Top Navigation Bar -->
+      <header class="top-navbar">
+        <div class="breadcrumb-area">
+          <span class="breadcrumb-root">Security Suite</span>
+          <span class="breadcrumb-separator">/</span>
+          <span class="breadcrumb-current" id="topbar-breadcrumb">Database Security Overview</span>
+        </div>
+
+        <div class="topbar-actions">
+          <!-- Connection Status Pill -->
+          <div class="connection-indicator-badge" id="topbar-connection-badge">
+            <span class="status-dot-pulse"></span>
+            <span id="topbar-connection-name">Healthcare (EHR)</span>
+            <span style="font-size:10px; color:var(--text-secondary); margin-left:2px;" id="topbar-latency">1.2ms</span>
+          </div>
+
+          <!-- Proxy Protection Switch -->
+          <button class="btn btn-secondary btn-subtle" onclick="App.toggleProtectionState()" id="topbar-proxy-toggle" title="Pause or Resume Real-time Protection">
+            <span class="status-dot-pulse" style="width:6px; height:6px;"></span>
+            <span id="topbar-toggle-label">Active Gating</span>
+          </button>
+
+          <!-- User Profile Selector -->
+          <div class="user-profile-menu" onclick="App.openUserSwitcherModal()">
+            <div class="avatar-initials" id="topbar-user-avatar">SA</div>
+            <div class="user-meta-info">
+              <span class="user-name-text" id="topbar-user-name">sec_admin</span>
+              <span class="user-role-text" id="topbar-user-role">Administrator</span>
+            </div>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+        </div>
+      </header>
+
+      <!-- ======================================================================
+           VIEW 1: DATABASE SECURITY OVERVIEW
+           ====================================================================== -->
+      <main class="view-container active-view" id="view-overview">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Database Security Overview</h2>
+            <p>Monitor query activity, detect inference attacks, and protect sensitive data.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-secondary" onclick="App.fetchStatus()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              Refresh
+            </button>
+            <button class="btn btn-primary" onclick="App.navigateTo('inspector')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+              Inspect SQL Query
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI 6-Grid -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Queries Inspected</span>
+              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-inspected">0</div>
+            <div class="kpi-footer"><span class="kpi-trend positive">&uarr; Real-time</span> active session tracking</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Threats Detected</span>
+              <div class="kpi-icon-wrapper" style="color:var(--amber-warning);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-threats">0</div>
+            <div class="kpi-footer"><span class="kpi-trend warning">Inference & Canary</span> detections</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Queries Blocked</span>
+              <div class="kpi-icon-wrapper" style="color:var(--danger-muted-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-blocked">0</div>
+            <div class="kpi-footer"><span class="kpi-trend danger">100% prevented</span> from upstream DB</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">High-Risk Queries</span>
+              <div class="kpi-icon-wrapper" style="color:var(--amber-warning);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-highrisk">0</div>
+            <div class="kpi-footer">Threshold score &ge; 60</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Average Risk Score</span>
+              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-avgscore">0</div>
+            <div class="kpi-footer">Calculated across audit ledger</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Database Status</span>
+              <div class="kpi-icon-wrapper" style="color:var(--sage-dark);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg></div>
+            </div>
+            <div class="kpi-value" style="font-size:18px;" id="kpi-dbstatus">Healthy</div>
+            <div class="kpi-footer" id="kpi-dbengine">SQLite Isolated Sector</div>
+          </div>
+        </div>
+
+        <!-- Recent Security Activity Table -->
+        <div class="card" style="margin-top:20px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+            <div>
+              <h3 style="font-size:14.5px; font-weight:700; color:var(--forest-deep);">Recent Security Events</h3>
+              <p style="font-size:12px; color:var(--text-secondary);">Real-time query security events intercepted by RECON-X proxy.</p>
+            </div>
+            <button class="btn btn-secondary" onclick="App.navigateTo('events')">View All Events</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="custom-table" id="overview-events-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Event ID</th>
+                  <th>Target Database</th>
+                  <th>Threat Category</th>
+                  <th>Risk Score</th>
+                  <th>Decision</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="overview-events-tbody">
+                <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events recorded. Intercept queries via SQL Inspector to generate security telemetry.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 2: SQL INSPECTOR
+           ====================================================================== -->
+      <main class="view-container" id="view-inspector">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>SQL Inspector Workspace</h2>
+            <p>Perform deep semantic risk analysis and evaluate policy enforcement without releasing unauthorized data.</p>
+          </div>
+        </div>
+
+        <div class="inspector-layout">
+          <!-- Left: Editor & Action Controls -->
+          <div class="sql-editor-container">
+            <div class="card">
+              <div class="editor-toolbar">
+                <div class="control-group">
+                  <span class="control-label">Target Database:</span>
+                  <select class="select-custom" id="inspector-db-select" onchange="App.onDatabaseChange(this.value)">
+                    <option value="healthcare">Healthcare (EHR)</option>
+                    <option value="banking">Banking (Accounts)</option>
+                    <option value="corporate_hr">Corporate HR (Salaries)</option>
+                    <option value="retail">Retail (Customers)</option>
+                  </select>
+                </div>
+
+                <div class="control-group">
+                  <span class="control-label">Session ID:</span>
+                  <input type="text" class="select-custom" id="inspector-session-id" value="default_session" style="width:120px;">
+                </div>
+              </div>
+
+              <!-- Quick Attack Scenarios -->
+              <div style="margin: 14px 0 6px 0;">
+                <span class="control-label" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Preset Attack Vectors:</span>
+                <div class="presets-container" id="inspector-presets-container" style="margin-top:6px;">
+                  <!-- Rendered via JS -->
+                </div>
+              </div>
+
+              <!-- SQL Text Area -->
+              <textarea class="code-editor-box" id="inspector-sql-input" placeholder="SELECT * FROM table WHERE ..."></textarea>
+
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:14px;">
+                <button class="btn btn-secondary" onclick="App.clearInspector()">Clear</button>
+                <div style="display:flex; gap:10px;">
+                  <button class="btn btn-secondary" onclick="App.inspectQueryOnly()" id="btn-inspect-only">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    Analyze Only
+                  </button>
+                  <button class="btn btn-primary" onclick="App.executeProxyQuery()" id="btn-execute-proxy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Inspect &amp; Execute
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Execution Results Box -->
+            <div class="card" id="inspector-results-box" style="display:none;">
+              <h3 style="font-size:13.5px; font-weight:700; margin-bottom:10px; color:var(--forest-deep);">Execution Output &amp; Records</h3>
+              <div id="inspector-results-content"></div>
+            </div>
+          </div>
+
+          <!-- Right: Detailed Risk & Inspection Intelligence Panel -->
+          <div class="card" id="inspector-analysis-card">
+            <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">Inspection Intelligence</h3>
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">Security engine classification &amp; threat reasoning.</p>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:12px; background-color:var(--bg-ivory); border-radius:var(--radius-sm);">
+              <div>
+                <span style="font-size:11px; text-transform:uppercase; color:var(--text-secondary); font-weight:600;">Decision Gate:</span>
+                <div style="margin-top:2px;">
+                  <span class="decision-badge ALLOW" id="analysis-decision-badge">ALLOW</span>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <span style="font-size:11px; text-transform:uppercase; color:var(--text-secondary); font-weight:600;">Risk Score:</span>
+                <div style="font-size:18px; font-weight:700; font-family:var(--font-mono);" id="analysis-score-text">0 / 100</div>
+              </div>
+            </div>
+
+            <!-- Horizontal Meter -->
+            <div class="risk-meter-wrapper">
+              <div class="risk-meter-labels">
+                <span>Low (0)</span>
+                <span>Moderate (25)</span>
+                <span>High (50)</span>
+                <span>Critical (75-100)</span>
+              </div>
+              <div class="risk-meter-bar-track">
+                <div class="risk-meter-fill low" id="analysis-meter-fill" style="width:0%;"></div>
+              </div>
+            </div>
+
+            <div style="margin-top:14px;">
+              <span class="control-label">Detected Factors &amp; Explanations:</span>
+              <div class="factors-list" id="analysis-factors-list">
+                <div class="factor-item">Query complies with the active security policy. No inference anomalies identified.</div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+              <span class="control-label">Engine Telemetry:</span>
+              <div style="font-size:11.5px; color:var(--text-secondary); margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                <div>Analysis Latency: <strong id="telemetry-latency" style="color:var(--text-primary);">-</strong></div>
+                <div>Active Policy: <strong id="telemetry-policy" style="color:var(--text-primary);">-</strong></div>
+                <div>Authenticated User: <strong id="telemetry-user" style="color:var(--text-primary);">-</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 3: THREAT DETECTION
+           ====================================================================== -->
+      <main class="view-container" id="view-threats">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Threat Detection &amp; Inference Vectors</h2>
+            <p>Comprehensive telemetry on multi-query differencing, population narrowing, and honeytoken traps.</p>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom:20px;">
+          <div class="card">
+            <h4 style="font-size:13px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">Differencing Reconstruction</h4>
+            <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:12px;">Detects queries designed to isolate individual secrets by computing mathematical delta between cohorts.</p>
+            <div style="font-size:22px; font-weight:700; color:var(--forest-deep);" id="threat-stat-differencing">0 incidents</div>
+          </div>
+
+          <div class="card">
+            <h4 style="font-size:13px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">Population Narrowing (k-Anonymity)</h4>
+            <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:12px;">Blocks progressive filter predicates that single out small cohorts below the minimum cell size (k &lt; 3).</p>
+            <div style="font-size:22px; font-weight:700; color:var(--forest-deep);" id="threat-stat-narrowing">0 incidents</div>
+          </div>
+
+          <div class="card">
+            <h4 style="font-size:13px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">Canary Honeytoken Traps</h4>
+            <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:12px;">Immediate hard execution block whenever a query touches pre-planted synthetic decoy identifiers.</p>
+            <div style="font-size:22px; font-weight:700; color:var(--danger-muted-red);" id="threat-stat-canary">0 incidents</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="font-size:14.5px; font-weight:700; color:var(--forest-deep); margin-bottom:12px;">Active Inference Investigations</h3>
+          <div class="table-responsive">
+            <table class="custom-table" id="threats-table">
+              <thead>
+                <tr>
+                  <th>Incident ID</th>
+                  <th>Detection Category</th>
+                  <th>Severity</th>
+                  <th>Target Database</th>
+                  <th>Threat Factor</th>
+                  <th>Enforcement</th>
+                </tr>
+              </thead>
+              <tbody id="threats-tbody">
+                <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No threat incidents recorded.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 4: QUERY HISTORY
+           ====================================================================== -->
+      <main class="view-container" id="view-history">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Query History &amp; Sequence Analysis</h2>
+            <p>Chronological tracking of session queries for cumulative privacy degradation detection.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-secondary" onclick="App.clearHistory()">Clear Active Session</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-responsive">
+            <table class="custom-table" id="history-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Timestamp</th>
+                  <th>Query Statement</th>
+                  <th>Decision</th>
+                  <th>Estimated Cohort</th>
+                  <th>Inspect</th>
+                </tr>
+              </thead>
+              <tbody id="history-tbody">
+                <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No queries in active session history.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 5: SECURITY EVENTS
+           ====================================================================== -->
+      <main class="view-container" id="view-events">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Security Events Log</h2>
+            <p>All intercepted security violations, blocked queries, and differential privacy enforcement events.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-secondary" onclick="App.clearEvents()">Clear Events</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-responsive">
+            <table class="custom-table" id="events-full-table">
+              <thead>
+                <tr>
+                  <th>Event ID</th>
+                  <th>Timestamp</th>
+                  <th>Type</th>
+                  <th>Severity</th>
+                  <th>Decision</th>
+                  <th>Risk Score</th>
+                  <th>Query</th>
+                </tr>
+              </thead>
+              <tbody id="events-full-tbody">
+                <tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No security events recorded.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 6: RISK ANALYTICS
+           ====================================================================== -->
+      <main class="view-container" id="view-analytics">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Risk Analytics &amp; Privacy Budgets</h2>
+            <p>Aggregated telemetry on differential privacy spend and threat vectors.</p>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:20px;">
+          <div class="card">
+            <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:12px;">Enforcement Decision Breakdown</h3>
+            <div id="analytics-decisions-chart" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </div>
+
+          <div class="card">
+            <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:12px;">Differential Privacy &epsilon;-Budget Consumption</h3>
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:16px;">Global Laplace noise expenditure per session budget (Max: &epsilon;=5.0).</p>
+            <div style="margin-top:10px;">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                <span>Current Spent: <strong id="dp-spent-label">0.0 &epsilon;</strong></span>
+                <span>Max Budget: <strong>5.0 &epsilon;</strong></span>
+              </div>
+              <div class="risk-meter-bar-track">
+                <div class="risk-meter-fill low" id="dp-budget-fill" style="width:0%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 7: DATABASE CONNECTIONS
+           ====================================================================== -->
+      <main class="view-container" id="view-connections">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Database Connections</h2>
+            <p>Protected downstream database engines managed by RECON-X security proxy.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-responsive">
+            <table class="custom-table" id="connections-table">
+              <thead>
+                <tr>
+                  <th>Connection ID</th>
+                  <th>Database Name</th>
+                  <th>Engine</th>
+                  <th>Sector</th>
+                  <th>Status</th>
+                  <th>TLS</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="connections-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 8: ACCESS CONTROL (RBAC)
+           ====================================================================== -->
+      <main class="view-container" id="view-access">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Role-Based Access Control (RBAC)</h2>
+            <p>Active user identities, roles, and security authorization matrix.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:12px;">Available Personas &amp; Privilege Profiles</h3>
+          <div class="table-responsive">
+            <table class="custom-table" id="users-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Display Name</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Assigned Permissions</th>
+                  <th>Switch Persona</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 9: PRIVACY SETTINGS & POLICIES
+           ====================================================================== -->
+      <main class="view-container" id="view-policies">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Privacy Policies &amp; Thresholds</h2>
+            <p>Configurable security rules, minimum cohort sizes, and differential privacy enforcement.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:12px;">Registered Security Policies</h3>
+          <div class="table-responsive">
+            <table class="custom-table" id="policies-table">
+              <thead>
+                <tr>
+                  <th>Policy ID</th>
+                  <th>Policy Name</th>
+                  <th>Min Cell Size (k)</th>
+                  <th>Diff Threshold</th>
+                  <th>&epsilon;-Budget Max</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="policies-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 10: AUDIT LOGS
+           ====================================================================== -->
+      <main class="view-container" id="view-audit">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>SHA-256 Tamper-Evident Audit Ledger</h2>
+            <p>Cryptographically linked event records guaranteeing compliance and non-repudiation.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-primary" onclick="App.verifyAuditLedger()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              Verify Cryptographic Chain
+            </button>
+            <a class="btn btn-secondary" href="/api/audit/export?format=json" download>Export JSON</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-responsive">
+            <table class="custom-table" id="audit-table">
+              <thead>
+                <tr>
+                  <th>Index</th>
+                  <th>Timestamp</th>
+                  <th>Principal</th>
+                  <th>Event Type</th>
+                  <th>Decision</th>
+                  <th>SHA-256 Record Hash</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody">
+                <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">Loading audit ledger...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================================================================
+           VIEW 11: SETTINGS
+           ====================================================================== -->
+      <main class="view-container" id="view-settings">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <h2>Platform Settings &amp; Proxy Gate</h2>
+            <p>Manage system configuration, fail-closed enforcement modes, and upstream connection details.</p>
+          </div>
+        </div>
+
+        <div class="card" style="max-width:650px;">
+          <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:14px;">Proxy Enforcement Engine</h3>
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong style="color:var(--forest-deep); font-size:13px;">Fail-Closed Security Gate</strong>
+                <p style="font-size:11.5px; color:var(--text-secondary);">When blocked or paused, queries are strictly prevented from reaching downstream databases.</p>
+              </div>
+              <span class="decision-badge ALLOW">Active</span>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong style="color:var(--forest-deep); font-size:13px;">Canary Decoy Trap Protection</strong>
+                <p style="font-size:11.5px; color:var(--text-secondary);">Immediately trips high-priority SOC alerts on synthetic entity touches.</p>
+              </div>
+              <span class="decision-badge ALLOW">Enforced</span>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong style="color:var(--forest-deep); font-size:13px;">Laplace Differential Privacy Noise</strong>
+                <p style="font-size:11.5px; color:var(--text-secondary);">Calibrated mathematical perturbation for restricted cohort aggregations.</p>
+              </div>
+              <span class="decision-badge RESTRICT">Auto-Injected</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+    </div><!-- /main-wrapper -->
+  </div><!-- /app-container -->
+
+  <!-- Drawer for Detailed Event Deep Dive -->
+  <div class="drawer-overlay" id="detail-drawer" onclick="if(event.target === this) App.closeDrawer()">
+    <div class="drawer-content">
+      <div class="drawer-header">
+        <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep);" id="drawer-title">Event Investigation</h3>
+        <button class="btn btn-subtle" onclick="App.closeDrawer()">&times;</button>
+      </div>
+      <div class="drawer-body" id="drawer-body">
+        <!-- Rendered via JS -->
+      </div>
+      <div class="drawer-footer">
+        <button class="btn btn-secondary" onclick="App.closeDrawer()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Hub -->
+  <div class="toast-container" id="toast-hub"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

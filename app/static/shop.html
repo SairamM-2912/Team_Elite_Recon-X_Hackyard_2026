@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shop — Supabase Connected Store | RECON-X</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Official Supabase JavaScript Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/static/js/supabase-config.js"></script>
+  <style>
+    .shop-panel {
+      max-width: 820px;
+      margin: 20px auto;
+      padding: 0 12px;
+      font-family: var(--font-ui, system-ui, sans-serif);
+      font-size: 12px;
+      color: var(--primary-text, #0F172A);
+    }
+    .shop-header {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .shop-brand { display: flex; align-items: center; gap: 8px; }
+    .shop-badge {
+      background: #2563EB; color: #fff; font-weight: 800;
+      font-size: 11px; padding: 3px 7px; border-radius: 4px; letter-spacing: 1px;
+    }
+    .shop-title { font-weight: 700; font-size: 13px; }
+    .shop-subtitle { font-size: 10px; color: #64748B; }
+    .nav-back { font-size: 11px; color: #2563EB; text-decoration: none; font-weight: 600; }
+    .nav-back:hover { color: #1D4ED8; }
+
+    /* Supabase Credentials Banner */
+    .config-banner {
+      background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 10px; display: none;
+    }
+    .config-banner h4 { margin: 0 0 6px 0; font-size: 11.5px; color: #92400E; font-weight: 700; }
+    .config-banner p { margin: 0 0 8px 0; font-size: 10.5px; color: #78350F; line-height: 1.4; }
+    .config-inputs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .config-inputs input {
+      border: 1px solid #D97706; border-radius: 4px; padding: 4px 8px; font-size: 11px; flex: 1; min-width: 200px;
+    }
+
+    /* Auth bar */
+    .auth-bar {
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 8px 14px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .auth-bar input {
+      border: 1px solid #E2E8F0; border-radius: 4px; padding: 4px 8px;
+      font-size: 11px; width: 150px; background: #fff; color: #0F172A;
+    }
+    .btn-xs {
+      padding: 4px 10px; font-size: 11px; font-weight: 600; border-radius: 4px;
+      border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+    }
+    .btn-xs-primary { background: #2563EB; color: #fff; border-color: #2563EB; }
+    .btn-xs-primary:hover { background: #1D4ED8; }
+    .btn-xs-secondary { background: #F1F5F9; color: #0F172A; border-color: #E2E8F0; }
+    .btn-xs-secondary:hover { background: #E2E8F0; }
+    .btn-xs-danger { background: #FEF2F2; color: #DC2626; border-color: #FECACA; }
+    #auth-status { font-size: 11px; color: #64748B; margin-left: auto; }
+
+    /* Filters */
+    .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .cat-chip {
+      padding: 3px 9px; font-size: 10.5px; border-radius: 12px;
+      border: 1px solid #E2E8F0; background: #F8FAFC; cursor: pointer;
+      font-weight: 600; color: #64748B; transition: all .15s;
+    }
+    .cat-chip:hover, .cat-chip.active { background: #EFF6FF; border-color: #2563EB; color: #2563EB; }
+
+    /* Product grid */
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px; margin-bottom: 14px;
+    }
+    .product-card {
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      overflow: hidden; transition: box-shadow .15s;
+    }
+    .product-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+    .product-img { width: 100%; height: 120px; object-fit: cover; background: #F1F5F9; display: block; }
+    .product-body { padding: 8px 10px; }
+    .product-name { font-weight: 700; font-size: 11.5px; margin-bottom: 2px; line-height: 1.3; }
+    .product-cat  { font-size: 9.5px; color: #94A3B8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+    .product-desc { font-size: 10px; color: #64748B; margin-bottom: 6px; line-height: 1.4;
+                    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .product-footer { display: flex; align-items: center; justify-content: space-between; }
+    .product-price { font-weight: 800; font-size: 12.5px; color: #2563EB; }
+    .product-stock { font-size: 9.5px; color: #64748B; }
+    .btn-add-cart {
+      font-size: 10px; padding: 3px 8px; border-radius: 4px;
+      background: #2563EB; color: #fff; border: none; cursor: pointer; font-weight: 600;
+    }
+    .btn-add-cart:hover { background: #1D4ED8; }
+    .btn-add-cart:disabled { background: #94A3B8; cursor: not-allowed; }
+
+    /* Cart */
+    .cart-panel {
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .cart-panel h3 { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: .5px; color: #64748B; margin-bottom: 6px; }
+    .cart-item { display: flex; justify-content: space-between; align-items: center;
+                 padding: 4px 0; border-bottom: 1px solid #F1F5F9; font-size: 11px; }
+    .cart-item:last-child { border-bottom: none; }
+    .cart-total { font-weight: 800; font-size: 13px; margin-top: 6px; text-align: right; color: #2563EB; }
+    .btn-checkout {
+      width: 100%; margin-top: 8px; padding: 7px; font-size: 12px; font-weight: 700;
+      background: #15803D; color: #fff; border: none; border-radius: 5px; cursor: pointer;
+    }
+    .btn-checkout:hover { background: #166534; }
+    .btn-checkout:disabled { background: #94A3B8; cursor: not-allowed; }
+
+    /* Orders */
+    .orders-panel {
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .orders-panel h3 { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                       letter-spacing: .5px; color: #64748B; margin-bottom: 6px; }
+    .order-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 0; border-bottom: 1px solid #F1F5F9; font-size: 11px;
+    }
+    .order-row:last-child { border-bottom: none; }
+    .status-badge {
+      padding: 2px 7px; border-radius: 10px; font-size: 9.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .status-delivered { background: #DCFCE7; color: #15803D; }
+    .status-shipped   { background: #DBEAFE; color: #1D4ED8; }
+    .status-processing{ background: #FEF3C7; color: #B45309; }
+    .status-pending   { background: #F1F5F9; color: #64748B; }
+    .status-cancelled { background: #FEE2E2; color: #DC2626; }
+
+    /* Contact */
+    .contact-panel {
+      background: #fff; border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .contact-panel h3 { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                        letter-spacing: .5px; color: #64748B; margin-bottom: 8px; }
+    .form-group { margin-bottom: 6px; }
+    .form-group label { display: block; font-size: 10px; font-weight: 700;
+                        color: #64748B; margin-bottom: 2px; text-transform: uppercase; letter-spacing: .4px; }
+    .form-group input, .form-group textarea {
+      width: 100%; box-sizing: border-box;
+      border: 1px solid #E2E8F0; border-radius: 4px; padding: 5px 8px;
+      font-size: 11px; background: #fff; color: #0F172A;
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+
+    .msg-ok  { font-size: 11px; color: #15803D; margin-top: 4px; }
+    .msg-err { font-size: 11px; color: #DC2626; margin-top: 4px; }
+    .loading-txt { font-size: 11px; color: #94A3B8; padding: 12px 0; text-align: center; }
+    .empty-txt   { font-size: 11px; color: #94A3B8; padding: 8px 0; }
+    .section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #64748B; }
+  </style>
+</head>
+<body style="background:#F8FAFC; margin:0; padding:0;">
+
+<div class="shop-panel">
+
+  <!-- Header -->
+  <div class="shop-header">
+    <div class="shop-brand">
+      <div class="shop-badge">RX</div>
+      <div>
+        <div class="shop-title">Supabase Fictional Store</div>
+        <div class="shop-subtitle">Cloud PostgreSQL database with Row Level Security</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="btn-xs btn-xs-secondary" onclick="Shop.toggleConfig()">Config Keys</button>
+      <a href="/" class="nav-back">&larr; Back to RECON-X</a>
+    </div>
+  </div>
+
+  <!-- Supabase Credentials Config Modal/Banner -->
+  <div id="config-banner" class="config-banner">
+    <h4>Connect to Supabase Project</h4>
+    <p>Paste your <strong>Project URL</strong> and <strong>Publishable Anon Key</strong> from your Supabase Dashboard (Settings &gt; API). Stored locally in your browser.</p>
+    <div class="config-inputs">
+      <input id="cfg-url" type="text" placeholder="https://xyzcompany.supabase.co">
+      <input id="cfg-key" type="password" placeholder="Publishable anon key (eyJhbGci...)">
+      <button class="btn-xs btn-xs-primary" onclick="Shop.saveConfig()">Save &amp; Connect</button>
+    </div>
+  </div>
+
+  <!-- Auth Bar -->
+  <div class="auth-bar">
+    <div id="auth-logged-out" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <input id="auth-email" type="email" placeholder="Email">
+      <input id="auth-password" type="password" placeholder="Password">
+      <button class="btn-xs btn-xs-primary" onclick="Shop.login()">Login</button>
+      <button class="btn-xs btn-xs-secondary" onclick="Shop.register()">Register</button>
+    </div>
+    <div id="auth-logged-in" style="display:none;align-items:center;gap:8px;">
+      <span id="auth-name" style="font-weight:700;font-size:11px;"></span>
+      <span id="auth-role-badge" class="status-badge status-pending"></span>
+      <button class="btn-xs btn-xs-danger" onclick="Shop.logout()">Logout</button>
+    </div>
+    <span id="auth-status">Not connected</span>
+    <div id="auth-msg" style="width:100%;"></div>
+  </div>
+
+  <!-- Category filter -->
+  <div class="filter-bar" id="filter-bar">
+    <div class="cat-chip active" onclick="Shop.filterCategory('')">All</div>
+    <div class="cat-chip" onclick="Shop.filterCategory('Electronics')">Electronics</div>
+    <div class="cat-chip" onclick="Shop.filterCategory('Clothing')">Clothing</div>
+    <div class="cat-chip" onclick="Shop.filterCategory('Books')">Books</div>
+    <div class="cat-chip" onclick="Shop.filterCategory('Home Accessories')">Home</div>
+  </div>
+
+  <!-- Products grid -->
+  <div class="section-row">
+    <span class="section-label">Products</span>
+    <span id="product-count" style="font-size:10.5px;color:#94A3B8;"></span>
+  </div>
+  <div id="products-grid" class="products-grid">
+    <div class="loading-txt">Connecting to Supabase...</div>
+  </div>
+
+  <!-- Cart -->
+  <div class="cart-panel" id="cart-panel" style="display:none;">
+    <div class="section-row">
+      <h3 style="margin:0;">Cart</h3>
+      <a href="#" style="font-size:10px;color:#DC2626;text-decoration:none;" onclick="Shop.clearCart(event)">Clear</a>
+    </div>
+    <div id="cart-items"></div>
+    <div class="cart-total" id="cart-total"></div>
+    <div id="cart-msg"></div>
+    <button class="btn-checkout" id="btn-checkout" onclick="Shop.checkout()">Place Order (Database Function)</button>
+  </div>
+
+  <!-- Orders -->
+  <div class="orders-panel" id="orders-panel" style="display:none;">
+    <div class="section-row">
+      <h3 style="margin:0;">My Orders</h3>
+      <a href="#" style="font-size:10px;color:#2563EB;text-decoration:none;" onclick="Shop.loadOrders(event)">Refresh</a>
+    </div>
+    <div id="orders-list"></div>
+  </div>
+
+  <!-- Contact -->
+  <div class="contact-panel">
+    <h3>Contact Us</h3>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="c-name" type="text" placeholder="Your name">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input id="c-email" type="email" placeholder="you@example.com">
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <input id="c-subject" type="text" placeholder="Optional subject">
+    </div>
+    <div class="form-group">
+      <label>Message</label>
+      <textarea id="c-message" placeholder="Your message..."></textarea>
+    </div>
+    <button class="btn-xs btn-xs-primary" onclick="Shop.sendContact()">Send Message</button>
+    <div id="contact-msg"></div>
+  </div>
+
+</div>
+
+<script>
+let supabaseClient = null;
+
+const Shop = {
+  state: {
+    user: null,
+    cart: [],
+    category: '',
+    products: []
+  },
+
+  init() {
+    const url = window.SUPABASE_CONFIG?.url || localStorage.getItem('SUPABASE_URL');
+    const key = window.SUPABASE_CONFIG?.publishableKey || localStorage.getItem('SUPABASE_KEY');
+
+    if (!url || !key) {
+      document.getElementById('config-banner').style.display = 'block';
+      document.getElementById('products-grid').innerHTML = '<div class="empty-txt">Please configure your Supabase URL & Key above to load database records.</div>';
+      return;
+    }
+
+    try {
+      supabaseClient = supabase.createClient(url, key);
+      document.getElementById('auth-status').textContent = 'Connected to Supabase';
+      this.checkAuth();
+      this.loadProducts();
+    } catch (e) {
+      this.msg('auth-msg', 'Invalid Supabase client config: ' + e.message, true);
+    }
+  },
+
+  toggleConfig() {
+    const el = document.getElementById('config-banner');
+    el.style.display = el.style.display === 'none' || !el.style.display ? 'block' : 'none';
+  },
+
+  saveConfig() {
+    const url = document.getElementById('cfg-url').value.trim();
+    const key = document.getElementById('cfg-key').value.trim();
+    if (!url || !key) {
+      alert('Please enter both Supabase URL and Publishable Anon Key.');
+      return;
+    }
+    localStorage.setItem('SUPABASE_URL', url);
+    localStorage.setItem('SUPABASE_KEY', key);
+    document.getElementById('config-banner').style.display = 'none';
+    window.location.reload();
+  },
+
+  msg(id, text, isError) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = isError ? 'msg-err' : 'msg-ok';
+  },
+
+  async checkAuth() {
+    if (!supabaseClient) return;
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+      this.state.user = session.user;
+      this._updateAuthUI();
+      await this.loadOrders();
+    } else {
+      this.state.user = null;
+      this._updateAuthUI();
+    }
+
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      this.state.user = session?.user || null;
+      this._updateAuthUI();
+      if (session) this.loadOrders();
+    });
+  },
+
+  _updateAuthUI() {
+    const u = this.state.user;
+    const out = document.getElementById('auth-logged-out');
+    const inp = document.getElementById('auth-logged-in');
+    const st  = document.getElementById('auth-status');
+    if (u) {
+      out.style.display = 'none';
+      inp.style.display = 'flex';
+      document.getElementById('auth-name').textContent = u.user_metadata?.full_name || u.email;
+      const rb = document.getElementById('auth-role-badge');
+      rb.textContent = 'Customer';
+      rb.className = 'status-badge status-delivered';
+      st.textContent = u.email;
+      document.getElementById('orders-panel').style.display = 'block';
+    } else {
+      out.style.display = 'flex';
+      inp.style.display = 'none';
+      st.textContent = 'Connected (Visitor)';
+      document.getElementById('orders-panel').style.display = 'none';
+    }
+  },
+
+  async login() {
+    if (!supabaseClient) return alert('Configure Supabase first.');
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    if (!email || !password) return this.msg('auth-msg', 'Enter email and password.', true);
+
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      this.msg('auth-msg', error.message, true);
+    } else {
+      this.msg('auth-msg', 'Logged in successfully!', false);
+    }
+  },
+
+  async register() {
+    if (!supabaseClient) return alert('Configure Supabase first.');
+    const full_name = prompt('Your full name:');
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    if (!full_name || !email || !password) return this.msg('auth-msg', 'Fill all fields.', true);
+
+    const { data, error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name } }
+    });
+
+    if (error) {
+      this.msg('auth-msg', error.message, true);
+    } else {
+      this.msg('auth-msg', 'Account registered! Check email or login.', false);
+    }
+  },
+
+  async logout() {
+    if (!supabaseClient) return;
+    await supabaseClient.auth.signOut();
+    this.state.user = null;
+    this.state.cart = [];
+    this._updateAuthUI();
+    this._renderCart();
+    document.getElementById('auth-msg').textContent = '';
+  },
+
+  async loadProducts() {
+    if (!supabaseClient) return;
+    const grid = document.getElementById('products-grid');
+    grid.innerHTML = '<div class="loading-txt">Loading products from Supabase...</div>';
+
+    let query = supabaseClient.from('products').select('*');
+    if (this.state.category) {
+      query = query.eq('category', this.state.category);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      grid.innerHTML = `<div class="msg-err">Could not load products: ${error.message}</div>`;
+      return;
+    }
+
+    this.state.products = data || [];
+    document.getElementById('product-count').textContent = `${this.state.products.length} items`;
+    this._renderProducts();
+  },
+
+  _renderProducts() {
+    const grid = document.getElementById('products-grid');
+    if (!this.state.products.length) {
+      grid.innerHTML = '<div class="empty-txt">No products found in database.</div>';
+      return;
+    }
+    grid.innerHTML = this.state.products.map(p => `
+      <div class="product-card">
+        <img class="product-img" src="${escHtml(p.image_url || '')}" alt="${escHtml(p.name)}" onerror="this.src='';this.style.background='#E2E8F0';">
+        <div class="product-body">
+          <div class="product-name">${escHtml(p.name)}</div>
+          <div class="product-cat">${escHtml(p.category)}</div>
+          <div class="product-desc">${escHtml(p.description || '')}</div>
+          <div class="product-footer">
+            <div>
+              <div class="product-price">$${parseFloat(p.price).toFixed(2)}</div>
+              <div class="product-stock">${p.stock_quantity > 0 ? `${p.stock_quantity} in stock` : 'Out of stock'}</div>
+            </div>
+            <button class="btn-add-cart" ${p.stock_quantity < 1 ? 'disabled' : ''}
+              onclick="Shop.addToCart('${p.id}', '${escHtml(p.name).replace(/'/g, "\\'")}', ${p.price})">
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  filterCategory(cat) {
+    this.state.category = cat;
+    document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.cat-chip').forEach(c => {
+      if (c.textContent.trim() === (cat || 'All')) c.classList.add('active');
+    });
+    this.loadProducts();
+  },
+
+  addToCart(product_id, name, price) {
+    const existing = this.state.cart.find(c => c.product_id === product_id);
+    if (existing) { existing.quantity++; }
+    else { this.state.cart.push({ product_id, name, price: parseFloat(price), quantity: 1 }); }
+    this._renderCart();
+  },
+
+  _renderCart() {
+    const panel = document.getElementById('cart-panel');
+    const list  = document.getElementById('cart-items');
+    const total = document.getElementById('cart-total');
+    if (!this.state.cart.length) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    list.innerHTML = this.state.cart.map((item, i) => `
+      <div class="cart-item">
+        <span>${escHtml(item.name)}</span>
+        <span>
+          <button style="border:none;background:none;cursor:pointer;color:#DC2626;" onclick="Shop.removeFromCart(${i})">&times;</button>
+          <input type="number" min="1" value="${item.quantity}" style="width:36px;text-align:center;border:1px solid #E2E8F0;"
+            onchange="Shop.updateQty(${i}, this.value)">
+          &times; $${item.price.toFixed(2)}
+          = <strong>$${(item.price * item.quantity).toFixed(2)}</strong>
+        </span>
+      </div>
+    `).join('');
+    const sum = this.state.cart.reduce((s, c) => s + c.price * c.quantity, 0);
+    total.textContent = `Total: $${sum.toFixed(2)}`;
+  },
+
+  removeFromCart(i) { this.state.cart.splice(i, 1); this._renderCart(); },
+  updateQty(i, v) { this.state.cart[i].quantity = Math.max(1, parseInt(v)||1); this._renderCart(); },
+  clearCart(e) { if (e) e.preventDefault(); this.state.cart = []; this._renderCart(); },
+
+  async checkout() {
+    if (!this.state.user) return this.msg('cart-msg', 'Please login to checkout.', true);
+    if (!this.state.cart.length) return;
+
+    const btn = document.getElementById('btn-checkout');
+    btn.disabled = true;
+    btn.textContent = 'Processing transaction in Supabase...';
+
+    // Invoking our secure database function that checks stock & calculates totals
+    const payload = this.state.cart.map(c => ({ product_id: c.product_id, quantity: c.quantity }));
+    const { data, error } = await supabaseClient.rpc('place_order', { items: payload });
+
+    btn.disabled = false;
+    btn.textContent = 'Place Order (Database Function)';
+
+    if (error) {
+      this.msg('cart-msg', error.message, true);
+    } else {
+      this.msg('cart-msg', `Order created successfully! Total: $${data.total_amount}`, false);
+      this.state.cart = [];
+      this._renderCart();
+      await this.loadOrders();
+      await this.loadProducts();
+    }
+  },
+
+  async loadOrders(e) {
+    if (e) e.preventDefault();
+    if (!this.state.user || !supabaseClient) return;
+
+    const list = document.getElementById('orders-list');
+    list.innerHTML = '<div class="loading-txt">Loading your orders...</div>';
+
+    // Protected by Row Level Security (RLS)
+    const { data, error } = await supabaseClient
+      .from('orders')
+      .select('id, total_amount, status, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      list.innerHTML = `<div class="msg-err">${error.message}</div>`;
+      return;
+    }
+
+    if (!data.length) {
+      list.innerHTML = '<div class="empty-txt">No previous orders found.</div>';
+      return;
+    }
+
+    list.innerHTML = data.map(o => `
+      <div class="order-row">
+        <span>#${o.id.substring(0, 8)}... &mdash; ${new Date(o.created_at).toLocaleDateString()}</span>
+        <span class="status-badge status-${o.status}">${o.status}</span>
+        <strong>$${parseFloat(o.total_amount).toFixed(2)}</strong>
+      </div>
+    `).join('');
+  },
+
+  async sendContact() {
+    if (!supabaseClient) return alert('Configure Supabase first.');
+    const name = document.getElementById('c-name').value.trim();
+    const email = document.getElementById('c-email').value.trim();
+    const subject = document.getElementById('c-subject').value.trim();
+    const message = document.getElementById('c-message').value.trim();
+
+    if (!name || !email || !message) {
+      return this.msg('contact-msg', 'Name, email, and message are required.', true);
+    }
+
+    const { error } = await supabaseClient.from('contact_messages').insert([{ name, email, subject, message }]);
+    if (error) {
+      this.msg('contact-msg', error.message, true);
+    } else {
+      this.msg('contact-msg', 'Message sent and stored in Supabase!', false);
+      ['c-name', 'c-email', 'c-subject', 'c-message'].forEach(id => document.getElementById(id).value = '');
+    }
+  }
+};
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+window.addEventListener('DOMContentLoaded', () => Shop.init());
+</script>
+</body>
+</html>
