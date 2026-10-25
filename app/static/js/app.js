@@ -14,6 +14,8 @@ const App = {
     users: [],
     auditLogs: [],
     analytics: null,
+    datasets: [],
+    pgStatus: null,
     currentView: 'overview',
     apiBase: ''
   },
@@ -25,54 +27,137 @@ const App = {
     await this.loadEvents();
     await this.loadHistory();
     await this.loadConnections();
+    await this.loadDatasets();
     await this.loadPolicies();
     await this.loadUsers();
     await this.loadAuditLogs();
     await this.loadAnalytics();
+    await this.checkPgStatus();
+    this.initScrollSpy();
   },
 
   // ---------------------------------------------------------------------------
-  // Navigation & View Routing
+  // Single-Page Scrolling & Navigation
   // ---------------------------------------------------------------------------
-  navigateTo(viewId) {
-    this.state.currentView = viewId;
-    document.querySelectorAll('.view-container').forEach(el => el.classList.remove('active-view'));
-    const target = document.getElementById(`view-${viewId}`);
-    if (target) target.classList.add('active-view');
+  scrollToSection(sectionId) {
+    const el = document.getElementById(sectionId);
+    if (!el) return;
 
-    // Update sidebar active classes
+    this.closeSidebar();
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    this.updateSidebarActive(sectionId);
+  },
+
+  updateSidebarActive(sectionId) {
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
-      link.classList.remove('active');
-      if (link.getAttribute('onclick')?.includes(`'${viewId}'`)) {
+      const target = link.getAttribute('data-section') || link.getAttribute('onclick');
+      if (target && (target.includes(sectionId) || target === sectionId)) {
         link.classList.add('active');
+      } else {
+        link.classList.remove('active');
       }
     });
 
-    // Update breadcrumbs
     const titles = {
-      overview: 'Database Security Overview',
-      inspector: 'SQL Inspector Workspace',
-      threats: 'Threat Detection & Inference Vectors',
-      history: 'Query History & Sequence Analysis',
-      events: 'Security Events Log',
-      analytics: 'Risk Analytics & Privacy Budgets',
-      connections: 'Database Connections',
-      access: 'Role-Based Access Control',
-      policies: 'Privacy Policies & Thresholds',
-      audit: 'Audit Logs & Cryptographic Ledger',
-      settings: 'Platform Settings & Proxy Gate'
+      'section-overview': 'Database Security Overview',
+      'section-monitoring': 'Query Monitoring & Threat Intelligence',
+      'section-connections': 'Database Connections & Datasets',
+      'section-audit': 'Audit Logs & Security Events',
+      'section-policies': 'Security Policies & Governance',
+      'section-history': 'History & Risk Analytics',
+      'section-workspace': 'SQL Workspace & Inspection Engine'
     };
     const bc = document.getElementById('topbar-breadcrumb');
-    if (bc) bc.textContent = titles[viewId] || 'Platform';
+    if (bc && titles[sectionId]) bc.textContent = titles[sectionId];
+  },
 
-    // Auto-refresh data on view entry
+  navigateTo(viewId) {
+    this.state.currentView = viewId;
+
+    const sectionMap = {
+      overview: { section: 'section-overview' },
+      inspector: { section: 'section-workspace' },
+      workspace: { section: 'section-workspace' },
+      threats: { section: 'section-monitoring' },
+      monitoring: { section: 'section-monitoring' },
+      history: { section: 'section-history' },
+      analytics: { section: 'section-history' },
+      reports: { section: 'section-history' },
+      events: { section: 'section-audit', tabGroup: 'audit-tabs', tab: 'tab-events-full' },
+      audit: { section: 'section-audit', tabGroup: 'audit-tabs', tab: 'tab-audit-ledger' },
+      connections: { section: 'section-connections', tabGroup: 'connections-tabs', tab: 'tab-connections-list' },
+      datasets: { section: 'section-connections', tabGroup: 'connections-tabs', tab: 'tab-datasets-explorer' },
+      pg: { section: 'section-connections', tabGroup: 'connections-tabs', tab: 'tab-pg-connection' },
+      policies: { section: 'section-policies', tabGroup: 'policies-tabs', tab: 'tab-policies-list' },
+      access: { section: 'section-policies', tabGroup: 'policies-tabs', tab: 'tab-rbac-users' },
+      settings: { section: 'section-policies', tabGroup: 'policies-tabs', tab: 'tab-platform-settings' }
+    };
+
+    const mapping = sectionMap[viewId] || { section: `section-${viewId}` };
+    if (mapping.tabGroup && mapping.tab) {
+      this.switchTab(mapping.tabGroup, mapping.tab);
+    }
+    this.scrollToSection(mapping.section);
+
     if (viewId === 'overview') this.fetchStatus();
-    if (viewId === 'events') this.loadEvents();
-    if (viewId === 'threats') this.loadEvents();
+    if (viewId === 'events' || viewId === 'threats') this.loadEvents();
     if (viewId === 'history') this.loadHistory();
     if (viewId === 'analytics') this.loadAnalytics();
     if (viewId === 'audit') this.loadAuditLogs();
     if (viewId === 'connections') this.loadConnections();
+    if (viewId === 'datasets') this.loadDatasets();
+  },
+
+  switchTab(tabGroupId, tabId) {
+    const container = document.getElementById(tabGroupId);
+    if (!container) return;
+
+    container.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+    });
+
+    container.querySelectorAll('.tab-pane').forEach(pane => {
+      pane.classList.toggle('active', pane.id === tabId);
+    });
+  },
+
+  toggleCollapse(panelId) {
+    const panel = document.getElementById(panelId);
+    if (panel) panel.classList.toggle('open');
+  },
+
+  toggleSidebar() {
+    const sb = document.getElementById('app-sidebar');
+    const bd = document.getElementById('sidebar-backdrop');
+    if (sb) sb.classList.toggle('open');
+    if (bd) bd.classList.toggle('active');
+  },
+
+  closeSidebar() {
+    const sb = document.getElementById('app-sidebar');
+    const bd = document.getElementById('sidebar-backdrop');
+    if (sb) sb.classList.remove('open');
+    if (bd) bd.classList.remove('active');
+  },
+
+  initScrollSpy() {
+    const sections = document.querySelectorAll('.dashboard-section[id]');
+    if (!sections.length || !('IntersectionObserver' in window)) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          this.updateSidebarActive(entry.target.id);
+        }
+      });
+    }, {
+      root: null,
+      rootMargin: '-20% 0px -55% 0px',
+      threshold: 0
+    });
+
+    sections.forEach(sec => observer.observe(sec));
   },
 
   // ---------------------------------------------------------------------------
@@ -842,6 +927,210 @@ const App = {
     if (dpSpent && d.summary) {
       dpSpent.textContent = `${d.summary.dp_budget_spent} \u03B5`;
     }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Dataset Schema Explorer & Preview
+  // ---------------------------------------------------------------------------
+  async loadDatasets() {
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/datasets`);
+      if (res.ok) {
+        const d = await res.json();
+        this.state.datasets = d.datasets || [];
+        this.renderDatasets(this.state.datasets);
+      }
+    } catch (e) {
+      console.warn('Datasets load error:', e);
+    }
+  },
+
+  renderDatasets(datasets) {
+    const container = document.getElementById('datasets-container');
+    if (!container) return;
+
+    if (!datasets || datasets.length === 0) {
+      container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); grid-column:1/-1;">No dataset sectors available.</div>`;
+      return;
+    }
+
+    container.innerHTML = datasets.map(ds => `
+      <div class="dataset-card">
+        <div class="dataset-card-header">
+          <div>
+            <div class="section-badge" style="margin-bottom:4px;">${escapeHtml(ds.compliance)}</div>
+            <h4 style="font-size:14px; font-weight:700; color:var(--forest-deep);">${escapeHtml(ds.sector)}</h4>
+            <p style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(ds.description)}</p>
+          </div>
+          <span class="decision-badge ALLOW">${ds.id.toUpperCase()}</span>
+        </div>
+
+        <div style="font-size:11px; padding:6px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-xs); border:1px solid var(--border-subtle); color:var(--forest-deep);">
+          <strong>Honeytoken Decoy:</strong> ${escapeHtml(ds.canary_record || 'Active')}
+        </div>
+
+        <div class="dataset-table-list">
+          ${(ds.tables || []).map(tbl => `
+            <div class="dataset-table-item">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-family:var(--font-mono); font-weight:700; font-size:12px; color:var(--forest-deep);">
+                  &bull; ${escapeHtml(tbl.table_name)}
+                </span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:11px; color:var(--text-secondary);">${tbl.row_count} rows</span>
+                  <button class="btn btn-secondary btn-subtle" style="font-size:10.5px; padding:2px 8px;" onclick="App.previewTable('${ds.id}', '${tbl.table_name}')">
+                    Preview &rarr;
+                  </button>
+                </div>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:2px;">
+                ${(tbl.columns || []).map(col => `
+                  <span class="col-tag ${col.sensitivity}" title="${col.type} - Sensitivity: ${col.sensitivity}">
+                    ${escapeHtml(col.name)}
+                  </span>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+  },
+
+  async previewTable(sector, table) {
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/datasets/${sector}/preview/${table}`);
+      if (res.ok) {
+        const d = await res.json();
+        this.openDatasetPreviewModal(d);
+      } else {
+        this.showToast('Unable to load table preview');
+      }
+    } catch (e) {
+      this.showToast('Failed to preview dataset table');
+    }
+  },
+
+  openDatasetPreviewModal(data) {
+    const modal = document.getElementById('dataset-preview-modal');
+    const title = document.getElementById('dataset-preview-title');
+    const body = document.getElementById('dataset-preview-body');
+    if (!modal || !body) return;
+
+    if (title) title.textContent = `Table Preview: ${data.sector} / ${data.table} (Top 10 Records)`;
+
+    const cols = data.columns || [];
+    const rows = data.rows || [];
+
+    body.innerHTML = `
+      <div class="table-responsive" style="max-height:360px; overflow-y:auto;">
+        <table class="custom-table">
+          <thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>${cols.map(c => `<td>${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    modal.classList.add('active');
+  },
+
+  closeDatasetPreviewModal() {
+    const modal = document.getElementById('dataset-preview-modal');
+    if (modal) modal.classList.remove('active');
+  },
+
+  // ---------------------------------------------------------------------------
+  // PostgreSQL Integration
+  // ---------------------------------------------------------------------------
+  async checkPgStatus() {
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/pg/status`);
+      if (res.ok) {
+        const d = await res.json();
+        this.state.pgStatus = d;
+        const statEl = document.getElementById('pg-status-summary');
+        if (statEl) {
+          statEl.innerHTML = `
+            <div>Target Host: <strong>${d.host}:${d.port}</strong></div>
+            <div>Database: <strong>${d.db}</strong></div>
+            <div>Service User: <strong>${d.user}</strong></div>
+            <div>PostgreSQL State: <strong style="color:${d.configured ? 'var(--sage-dark)' : 'var(--amber-warning)'};">${d.configured ? 'Active Credentials' : 'Local / Simulated'}</strong></div>
+          `;
+        }
+      }
+    } catch (e) {
+      console.warn('PG status error:', e);
+    }
+  },
+
+  async testPgConnection() {
+    const resBox = document.getElementById('pg-test-result');
+    if (resBox) resBox.innerHTML = '<span style="color:var(--text-secondary);">Testing connection...</span>';
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/pg/test`, { method: 'POST' });
+      const d = await res.json();
+      if (resBox) {
+        if (d.healthy) {
+          resBox.innerHTML = `<span style="color:var(--sage-dark); font-weight:700;">&check; Healthy (${d.latency_ms}ms) &bull; Connected to ${d.db}</span>`;
+        } else {
+          resBox.innerHTML = `<span style="color:var(--amber-warning); font-weight:600;">&bull; Offline / Simulated (${escapeHtml(d.error || 'Database unreachable')})</span>`;
+        }
+      }
+    } catch (e) {
+      if (resBox) resBox.innerHTML = '<span style="color:var(--danger-muted-red);">Test request failed</span>';
+    }
+  },
+
+  async runPgQuery() {
+    const input = document.getElementById('pg-sql-input');
+    const sql = input?.value.trim();
+    if (!sql) return this.showToast('Please enter a SQL query');
+
+    const resultsBox = document.getElementById('pg-query-results');
+    if (resultsBox) resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">Executing query through security gate...</div>';
+
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/pg/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql })
+      });
+      const d = await res.json();
+      if (resultsBox) {
+        if (d.blocked) {
+          resultsBox.innerHTML = `
+            <div style="background-color:var(--danger-red-bg); border:1px solid var(--danger-red-border); color:var(--danger-muted-red); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
+              <strong>Policy Gate BLOCK:</strong> ${escapeHtml(d.message || 'Execution prohibited by inference engine.')}
+            </div>
+          `;
+        } else if (d.executed) {
+          resultsBox.innerHTML = `
+            <div style="background-color:var(--success-green-bg); border:1px solid var(--success-green-border); color:var(--success-green); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
+              <strong>Executed:</strong> Retrieved ${d.row_count} rows in ${d.execution_ms}ms (Decision: ${d.decision})
+            </div>
+          `;
+        } else {
+          resultsBox.innerHTML = `
+            <div style="background-color:var(--amber-warning-bg); border:1px solid var(--amber-warning-border); color:var(--amber-warning); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
+              <strong>Notice:</strong> ${escapeHtml(d.message || d.remediation || 'Query could not be executed.')}
+            </div>
+          `;
+        }
+      }
+    } catch (e) {
+      if (resultsBox) resultsBox.innerHTML = '<div style="font-size:12px; color:var(--danger-muted-red);">Query request failed</div>';
+    }
+  },
+
+  filterEvents(searchTerm) {
+    const term = (searchTerm || '').toLowerCase();
+    const rows = document.querySelectorAll('#events-full-tbody tr');
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(term) ? '' : 'none';
+    });
   },
 
   // ---------------------------------------------------------------------------
