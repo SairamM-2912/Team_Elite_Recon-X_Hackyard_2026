@@ -9,30 +9,20 @@ const App = {
     scenarios: [],
     recentEvents: [],
     history: [],
-    connections: [],
     policies: [],
-    users: [],
+    access: null,
     auditLogs: [],
     analytics: null,
     datasets: [],
     pgStatus: null,
+    pgQueryRequestId: 0,
     currentView: 'overview',
     apiBase: ''
   },
 
   async init(apiBase = '') {
     this.state.apiBase = apiBase;
-    await this.fetchStatus();
-    await this.loadScenarios();
-    await this.loadEvents();
-    await this.loadHistory();
-    await this.loadConnections();
-    await this.loadDatasets();
-    await this.loadPolicies();
-    await this.loadUsers();
-    await this.loadAuditLogs();
-    await this.loadAnalytics();
-    await this.checkPgStatus();
+    await this.refreshPostgresData();
     this.initScrollSpy();
   },
 
@@ -60,13 +50,13 @@ const App = {
     });
 
     const titles = {
-      'section-overview': 'Database Security Overview',
-      'section-monitoring': 'Query Monitoring & Threat Intelligence',
-      'section-connections': 'Database Connections & Datasets',
-      'section-audit': 'Audit Logs & Security Events',
-      'section-policies': 'Security Policies & Governance',
-      'section-history': 'History & Risk Analytics',
-      'section-workspace': 'SQL Workspace & Inspection Engine'
+      'section-overview': 'Overview',
+      'section-monitoring': 'Query Checks and Alerts',
+      'section-connections': 'Database and Tables',
+      'section-audit': 'Audit Log and Events',
+      'section-policies': 'Safety Rules and User Access',
+      'section-history': 'Query History and Results',
+      'section-workspace': 'Check and Run a Query'
     };
     const bc = document.getElementById('topbar-breadcrumb');
     if (bc && titles[sectionId]) bc.textContent = titles[sectionId];
@@ -170,10 +160,13 @@ const App = {
         const s = await res.json();
         this.state.status = s;
         this.renderStatus(s);
+      } else {
+        throw new Error('Proxy status unavailable');
       }
     } catch (e) {
       console.warn('Status fetch failed:', e);
-      this.showToast('Unable to connect to security proxy');
+      this.state.status = null;
+      this.showToast('Could not connect to the server.');
     }
   },
 
@@ -183,18 +176,21 @@ const App = {
     const nameEl = document.getElementById('topbar-connection-name');
     const latEl = document.getElementById('topbar-connection-latency');
     const togLabel = document.getElementById('topbar-toggle-label');
+    const gateState = document.getElementById('gate-state');
 
-    if (nameEl && s.active_connection) {
-      nameEl.textContent = `${s.active_connection.name}`;
-    }
-    if (latEl && s.active_connection) {
-      latEl.textContent = `${s.active_connection.latency_ms}ms`;
-    }
+    if (nameEl) nameEl.textContent = this.state.pgStatus?.db || 'PostgreSQL';
+    if (latEl) latEl.textContent = this.state.pgStatus?.healthy
+      ? `${this.state.pgStatus.latency_ms}ms`
+      : '';
     if (badge) {
-      badge.className = `connection-indicator-badge ${s.proxy_running ? '' : 'paused'}`;
+      badge.className = `connection-indicator-badge ${this.state.pgStatus?.healthy ? '' : 'disconnected'}`;
     }
     if (togLabel) {
-      togLabel.textContent = s.proxy_running ? 'Active Gating' : 'Gating Paused';
+      togLabel.textContent = s.proxy_running ? 'Protection On' : 'Protection Paused';
+    }
+    if (gateState) {
+      gateState.textContent = s.proxy_running ? 'Active' : 'Paused';
+      gateState.className = `decision-badge ${s.proxy_running ? 'ALLOW' : 'BLOCK'}`;
     }
 
     // Topbar User info
@@ -224,10 +220,21 @@ const App = {
     if (elInspected) elInspected.textContent = auditCount;
     if (elThreats) elThreats.textContent = totalEvents;
     if (elBlocked) elBlocked.textContent = blockedCount;
-    if (elHighRisk) elHighRisk.textContent = blockedCount; // Queries resulting in critical severity
-    if (elAvgScore) elAvgScore.textContent = auditCount > 0 ? '24' : '0';
-    if (elDbStatus && s.active_connection) elDbStatus.textContent = s.active_connection.status || 'Active';
-    if (elDbEngine && s.active_connection) elDbEngine.textContent = s.active_connection.engine;
+    if (elHighRisk) elHighRisk.textContent = this.state.auditLogs.length
+      ? this.state.auditLogs.filter(log => Number(log.risk_score) >= 60).length
+      : 'No records';
+    const riskScores = this.state.auditLogs
+      .map(log => Number(log.risk_score))
+      .filter(score => Number.isFinite(score));
+    if (elAvgScore) elAvgScore.textContent = riskScores.length
+      ? (riskScores.reduce((sum, score) => sum + score, 0) / riskScores.length).toFixed(1)
+      : 'No records';
+    if (elDbStatus) elDbStatus.textContent = this.state.pgStatus?.healthy
+      ? 'Connected'
+      : 'Not connected';
+    if (elDbEngine) elDbEngine.textContent = this.state.pgStatus?.db
+      ? `PostgreSQL · ${this.state.pgStatus.db}`
+      : 'PostgreSQL';
 
     // Badges
     const sbEvents = document.getElementById('sidebar-events-count');
@@ -239,9 +246,15 @@ const App = {
     const tDiff = document.getElementById('threat-stat-differencing');
     const tNarr = document.getElementById('threat-stat-narrowing');
     const tCan = document.getElementById('threat-stat-canary');
-    if (tDiff) tDiff.textContent = `${this.state.recentEvents.filter(e => e.event_type?.includes('DIFFERENCING')).length} incidents`;
-    if (tNarr) tNarr.textContent = `${this.state.recentEvents.filter(e => e.event_type?.includes('NARROWING')).length} incidents`;
-    if (tCan) tCan.textContent = `${this.state.recentEvents.filter(e => e.event_type?.includes('CANARY') || e.decision === 'BLOCK').length} incidents`;
+    if (tDiff) tDiff.textContent = this.countThreatEvents('differencing_attack', 'DIFFERENCING');
+    if (tNarr) tNarr.textContent = this.countThreatEvents('population_narrowing', 'NARROWING');
+    if (tCan) tCan.textContent = this.countThreatEvents('canary_tripwire', 'CANARY');
+  },
+
+  countThreatEvents(factor, eventType) {
+    return this.state.recentEvents.filter(event =>
+      event.factors?.[factor] === true || event.event_type?.includes(eventType)
+    ).length + ' alerts';
   },
 
   async toggleProtectionState() {
@@ -255,128 +268,18 @@ const App = {
       });
       if (res.ok) {
         await this.fetchStatus();
-        this.showToast(`Protection Gating ${nextState ? 'Active' : 'Paused'}`);
+        this.showToast(`Protection ${nextState ? 'turned on' : 'paused'}.`);
       }
     } catch (e) {
-      this.showToast('Failed to toggle proxy state');
-    }
-  },
-
-  // ---------------------------------------------------------------------------
-  // SQL Inspector & Scenarios
-  // ---------------------------------------------------------------------------
-  async loadScenarios() {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/proxy/scenarios`);
-      if (res.ok) {
-        this.state.scenarios = await res.json();
-        this.renderScenarios();
-        if (this.state.scenarios.length > 0) {
-          const input = document.getElementById('inspector-sql-input');
-          if (input && !input.value) {
-            input.value = this.state.scenarios[0].query;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Scenarios load error:', e);
-    }
-  },
-
-  renderScenarios() {
-    const c = document.getElementById('inspector-presets-container');
-    if (!c) return;
-
-    c.innerHTML = (this.state.scenarios || []).map(sc => `
-      <div class="preset-chip" onclick="App.applyScenario('${sc.id}')">
-        <strong>${sc.category}:</strong> ${sc.title}
-      </div>
-    `).join('');
-  },
-
-  applyScenario(id) {
-    const sc = this.state.scenarios.find(s => s.id === id);
-    if (!sc) return;
-    const input = document.getElementById('inspector-sql-input');
-    if (input) input.value = sc.query;
-
-    const dbSelect = document.getElementById('inspector-db-select');
-    if (dbSelect && sc.sector) {
-      dbSelect.value = sc.sector;
-      this.onDatabaseChange(sc.sector, false);
-    }
-    this.showToast(`Preset Loaded: ${sc.title}`);
-  },
-
-  clearInspector() {
-    const input = document.getElementById('inspector-sql-input');
-    if (input) input.value = '';
-    const resBox = document.getElementById('inspector-results-box');
-    if (resBox) resBox.style.display = 'none';
-  },
-
-  async inspectQueryOnly() {
-    const input = document.getElementById('inspector-sql-input');
-    const query = input?.value.trim();
-    if (!query) return this.showToast('Please enter a SQL query');
-
-    const btn = document.getElementById('btn-inspect-only');
-    if (btn) btn.disabled = true;
-
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/proxy/inspect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        this.renderInspectionIntelligence(data);
-        this.showToast('Inspection completed (Execution Gated)');
-      } else {
-        const err = await res.json();
-        this.showToast(err.detail || 'Inspection failed');
-      }
-    } catch (e) {
-      this.showToast('Inspection request failed');
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  },
-
-  async executeProxyQuery() {
-    const input = document.getElementById('inspector-sql-input');
-    const query = input?.value.trim();
-    if (!query) return this.showToast('Please enter a SQL query');
-
-    const session_id = document.getElementById('inspector-session-id')?.value || 'default_session';
-    const btn = document.getElementById('btn-execute-proxy');
-    if (btn) btn.disabled = true;
-
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/proxy/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, session_id })
-      });
-      const data = await res.json();
-      this.renderInspectionIntelligence(data);
-      this.renderExecutionOutput(data);
-      await this.loadEvents();
-      await this.loadHistory();
-      await this.fetchStatus();
-    } catch (e) {
-      this.showToast('Execution request failed');
-    } finally {
-      if (btn) btn.disabled = false;
+      this.showToast('Could not change the protection setting.');
     }
   },
 
   renderInspectionIntelligence(d) {
-    const decision = d.decision?.decision || d.decision || 'ALLOW';
-    const score = d.risk_score !== undefined ? d.risk_score : (d.decision?.risk_score || 0);
+    const decision = d.decision?.decision || d.decision || 'Unavailable';
+    const score = d.risk_score !== undefined ? d.risk_score : (d.decision?.risk_score ?? null);
     const reasons = d.reasons || d.decision?.reasons || [];
-    const latency = d.analysis_latency_ms || d.execution_latency_ms || 1.1;
+    const latency = d.analysis_latency_ms ?? d.execution_latency_ms ?? null;
 
     // Badges & Score
     const badge = document.getElementById('analysis-decision-badge');
@@ -387,11 +290,11 @@ const App = {
       badge.className = `decision-badge ${decision}`;
       badge.textContent = decision;
     }
-    if (scoreEl) scoreEl.textContent = `${score} / 100`;
+    if (scoreEl) scoreEl.textContent = score === null ? '—' : `${score} / 100`;
 
     // Meter Width & Color
     if (meter) {
-      meter.style.width = `${Math.max(4, score)}%`;
+      meter.style.width = score === null ? '0%' : `${Math.max(0, Math.min(100, score))}%`;
       meter.className = 'risk-meter-fill ' + (
         score >= 75 ? 'critical' : score >= 50 ? 'high' : score >= 25 ? 'moderate' : 'low'
       );
@@ -401,7 +304,7 @@ const App = {
     const fList = document.getElementById('analysis-factors-list');
     if (fList) {
       if (reasons.length === 0) {
-        fList.innerHTML = `<div class="factor-item">Query conforms with active policies. No security violations triggered.</div>`;
+        fList.innerHTML = '<div class="factor-item">No reasons were given.</div>';
       } else {
         fList.innerHTML = reasons.map(r => `
           <div class="factor-item ${decision === 'BLOCK' ? 'critical' : ''}">
@@ -414,54 +317,30 @@ const App = {
     // Telemetry
     const tLat = document.getElementById('telemetry-latency');
     const tPol = document.getElementById('telemetry-policy');
-    const tUsr = document.getElementById('telemetry-user');
-    if (tLat) tLat.textContent = `${latency} ms`;
-    if (tPol) tPol.textContent = this.state.status?.active_policy?.name || 'Balanced Privacy';
-    if (tUsr) tUsr.textContent = this.state.status?.authenticated_user?.username || 'sec_admin';
+    if (tLat) tLat.textContent = latency === null ? 'Unavailable' : `${latency} ms`;
+    if (tPol) tPol.textContent = this.state.status?.active_policy?.name || 'Unavailable';
   },
 
-  renderExecutionOutput(res) {
-    const box = document.getElementById('inspector-results-box');
-    const content = document.getElementById('inspector-results-content');
-    if (!box || !content) return;
+  resetInspectionIntelligence() {
+    const badge = document.getElementById('analysis-decision-badge');
+    const score = document.getElementById('analysis-score-text');
+    const meter = document.getElementById('analysis-meter-fill');
+    const factors = document.getElementById('analysis-factors-list');
+    const latency = document.getElementById('telemetry-latency');
+    const policy = document.getElementById('telemetry-policy');
 
-    box.style.display = 'block';
-
-    if (res.blocked) {
-      content.innerHTML = `
-        <div style="background-color:var(--danger-red-bg); border:1px solid var(--danger-red-border); color:var(--danger-muted-red); padding:14px; border-radius:var(--radius-sm);">
-          <strong style="display:block; margin-bottom:4px;">Execution Prevented by Policy Gate (BLOCK)</strong>
-          <p style="font-size:12px;">${escapeHtml(res.message || 'Zero records released. Downstream database access was strictly isolated.')}</p>
-        </div>
-      `;
-    } else if (res.success && res.rows) {
-      const dp = res.differential_privacy;
-      const count = res.row_count || res.rows.length;
-      let tableHtml = '';
-
-      if (res.columns && res.columns.length > 0 && res.rows.length > 0) {
-        tableHtml = `
-          <div class="table-responsive" style="margin-top:10px; max-height:240px; overflow-y:auto;">
-            <table class="custom-table">
-              <thead><tr>${res.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
-              <tbody>
-                ${res.rows.slice(0, 10).map(r => `<tr>${res.columns.map(c => `<td>${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-      }
-
-      content.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-bottom:8px;">
-          <span>Retrieved: <strong>${count} records</strong> (${res.execution_latency_ms}ms)</span>
-          ${dp ? `<span class="decision-badge RESTRICT">Laplace Perturbation (&epsilon;=${dp.epsilon})</span>` : ''}
-        </div>
-        ${tableHtml || '<div style="color:var(--text-secondary); font-size:12px;">Query executed successfully with 0 rows returned.</div>'}
-      `;
-    } else {
-      content.innerHTML = `<div style="color:var(--danger-muted-red); font-size:12px;">Error: ${escapeHtml(res.error || 'Execution failed')}</div>`;
+    if (badge) {
+      badge.className = 'decision-badge';
+      badge.textContent = 'Pending';
     }
+    if (score) score.textContent = 'Pending';
+    if (meter) {
+      meter.style.width = '0%';
+      meter.className = 'risk-meter-fill low';
+    }
+    if (factors) factors.innerHTML = '<div class="factor-item">Waiting for the current query analysis.</div>';
+    if (latency) latency.textContent = 'Pending';
+    if (policy) policy.textContent = 'Unavailable';
   },
 
   // ---------------------------------------------------------------------------
@@ -476,9 +355,20 @@ const App = {
         this.renderOverviewEventsTable();
         this.renderFullEventsTable();
         this.renderThreatsTable();
+        if (this.state.status) this.renderStatus(this.state.status);
+      } else {
+        this.state.recentEvents = [];
+        this.renderOverviewEventsTable();
+        this.renderFullEventsTable();
+        this.renderThreatsTable();
       }
     } catch (e) {
       console.warn('Events load error:', e);
+      this.state.recentEvents = [];
+      this.renderOverviewEventsTable();
+      this.renderFullEventsTable();
+      this.renderThreatsTable();
+      if (this.state.status) this.renderStatus(this.state.status);
     }
   },
 
@@ -487,7 +377,7 @@ const App = {
     if (!tbody) return;
 
     if (this.state.recentEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events recorded. Run queries via SQL Inspector to generate security telemetry.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events yet. Run a query to see activity here.</td></tr>`;
       return;
     }
 
@@ -495,11 +385,11 @@ const App = {
       <tr onclick="App.openEventDrawer('${e.id}')">
         <td style="font-family:var(--font-mono); font-size:11px;">${e.timestamp}</td>
         <td><strong style="color:var(--forest-deep);">${e.id}</strong></td>
-        <td>${escapeHtml(e.database || 'healthcare')}</td>
-        <td>${escapeHtml(e.event_type.replace(/_/g, ' '))}</td>
-        <td><span class="risk-pill ${e.risk_score >= 75 ? 'critical' : e.risk_score >= 50 ? 'high' : 'low'}">${e.risk_score}</span></td>
-        <td><span class="decision-badge ${e.decision}">${e.decision}</span></td>
-        <td><a style="color:var(--sage-dark); font-weight:600; text-decoration:none;">Inspect &rarr;</a></td>
+        <td>${escapeHtml(e.database || 'Not recorded')}</td>
+        <td>${escapeHtml((e.event_type || 'Not recorded').replace(/_/g, ' '))}</td>
+        <td><span class="risk-pill ${e.risk_score >= 75 ? 'critical' : e.risk_score >= 50 ? 'high' : 'low'}">${escapeHtml(String(e.risk_score ?? 'Unavailable'))}</span></td>
+        <td><span class="decision-badge ${escapeHtml(e.decision || '')}">${escapeHtml(e.decision || 'Unavailable')}</span></td>
+        <td><a style="color:var(--sage-dark); font-weight:600; text-decoration:none;">View &rarr;</a></td>
       </tr>
     `).join('');
   },
@@ -509,7 +399,7 @@ const App = {
     if (!tbody) return;
 
     if (this.state.recentEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No security events recorded.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events yet.</td></tr>`;
       return;
     }
 
@@ -517,11 +407,11 @@ const App = {
       <tr onclick="App.openEventDrawer('${e.id}')">
         <td><strong>${e.id}</strong></td>
         <td style="font-family:var(--font-mono); font-size:11px;">${e.timestamp}</td>
-        <td>${escapeHtml(e.event_type.replace(/_/g, ' '))}</td>
-        <td><span class="risk-pill ${e.severity === 'CRITICAL' ? 'critical' : 'moderate'}">${e.severity}</span></td>
-        <td><span class="decision-badge ${e.decision}">${e.decision}</span></td>
-        <td><span class="risk-pill ${e.risk_score >= 75 ? 'critical' : 'low'}">${e.risk_score}</span></td>
-        <td style="font-family:var(--font-mono); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(e.query)}</td>
+        <td>${escapeHtml((e.event_type || 'Not recorded').replace(/_/g, ' '))}</td>
+        <td><span class="risk-pill ${e.severity === 'CRITICAL' ? 'critical' : 'moderate'}">${escapeHtml(e.severity || 'Unavailable')}</span></td>
+        <td><span class="decision-badge ${escapeHtml(e.decision || '')}">${escapeHtml(e.decision || 'Unavailable')}</span></td>
+        <td><span class="risk-pill ${e.risk_score >= 75 ? 'critical' : 'low'}">${escapeHtml(String(e.risk_score ?? 'Unavailable'))}</span></td>
+        <td style="font-family:var(--font-mono); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(e.query || 'Not recorded')}</td>
       </tr>
     `).join('');
   },
@@ -532,18 +422,18 @@ const App = {
 
     const threatEvents = this.state.recentEvents.filter(e => e.decision !== 'ALLOW');
     if (threatEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No active threat incidents detected.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No alerts found.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = threatEvents.map(e => `
       <tr onclick="App.openEventDrawer('${e.id}')">
         <td><strong>${e.id}</strong></td>
-        <td>${escapeHtml(e.event_type.replace(/_/g, ' '))}</td>
-        <td><span class="risk-pill ${e.severity === 'CRITICAL' ? 'critical' : 'high'}">${e.severity}</span></td>
-        <td>${escapeHtml(e.database || 'healthcare')}</td>
-        <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml((e.reasons || [])[0] || 'Inference attack vector')}</td>
-        <td><span class="decision-badge ${e.decision}">${e.decision}</span></td>
+        <td>${escapeHtml((e.event_type || 'Not recorded').replace(/_/g, ' '))}</td>
+        <td><span class="risk-pill ${e.severity === 'CRITICAL' ? 'critical' : 'high'}">${escapeHtml(e.severity || 'Unavailable')}</span></td>
+        <td>${escapeHtml(e.database || 'Not recorded')}</td>
+        <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml((e.reasons || [])[0] || 'No reason provided')}</td>
+        <td><span class="decision-badge ${escapeHtml(e.decision || '')}">${escapeHtml(e.decision || 'Unavailable')}</span></td>
       </tr>
     `).join('');
   },
@@ -556,40 +446,40 @@ const App = {
     const body = document.getElementById('drawer-body');
     const title = document.getElementById('drawer-title');
 
-    if (title) title.textContent = `Security Investigation: ${e.id}`;
+    if (title) title.textContent = `Event Details: ${e.id}`;
     if (body) {
       body.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--bg-ivory); border-radius:var(--radius-sm);">
           <div>
-            <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Enforcement Decision:</span>
-            <div style="margin-top:2px;"><span class="decision-badge ${e.decision}">${e.decision}</span></div>
+            <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Result:</span>
+            <div style="margin-top:2px;"><span class="decision-badge ${escapeHtml(e.decision || '')}">${escapeHtml(e.decision || 'Unavailable')}</span></div>
           </div>
           <div>
             <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Severity:</span>
-            <div style="font-size:13px; font-weight:700; color:var(--forest-deep);">${e.severity}</div>
+            <div style="font-size:13px; font-weight:700; color:var(--forest-deep);">${escapeHtml(e.severity || 'Unavailable')}</div>
           </div>
           <div>
             <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Risk Score:</span>
-            <div style="font-size:16px; font-weight:700; font-family:var(--font-mono);">${e.risk_score} / 100</div>
+            <div style="font-size:16px; font-weight:700; font-family:var(--font-mono);">${escapeHtml(String(e.risk_score ?? 'Unavailable'))} / 100</div>
           </div>
         </div>
 
         <div>
-          <label style="font-size:11.5px; font-weight:700; color:var(--forest-deep); display:block; margin-bottom:4px;">Intercepted SQL Statement:</label>
-          <pre style="background:#FAF9F6; border:1px solid var(--border-subtle); padding:12px; border-radius:var(--radius-sm); font-family:var(--font-mono); font-size:11.5px; white-space:pre-wrap; word-break:break-all;">${escapeHtml(e.query)}</pre>
+          <label style="font-size:11.5px; font-weight:700; color:var(--forest-deep); display:block; margin-bottom:4px;">Query:</label>
+          <pre style="background:#FAF9F6; border:1px solid var(--border-subtle); padding:12px; border-radius:var(--radius-sm); font-family:var(--font-mono); font-size:11.5px; white-space:pre-wrap; word-break:break-all;">${escapeHtml(e.query || 'Not recorded')}</pre>
         </div>
 
         <div>
-          <label style="font-size:11.5px; font-weight:700; color:var(--forest-deep); display:block; margin-bottom:4px;">Threat Reasoning &amp; Factors:</label>
+          <label style="font-size:11.5px; font-weight:700; color:var(--forest-deep); display:block; margin-bottom:4px;">Why this happened:</label>
           <div class="factors-list">
-            ${(e.reasons || []).map(r => `<div class="factor-item critical"><strong>&bull;</strong> ${escapeHtml(r)}</div>`).join('')}
+            ${(e.reasons || []).map(r => `<div class="factor-item critical"><strong>&bull;</strong> ${escapeHtml(r)}</div>`).join('') || '<div class="factor-item">No reason was given.</div>'}
           </div>
         </div>
 
         <div style="font-size:11.5px; color:var(--text-secondary); display:flex; flex-direction:column; gap:4px; padding-top:10px; border-top:1px solid var(--border-subtle);">
-          <div>Principal User: <strong style="color:var(--text-primary);">${escapeHtml(e.user || 'sec_admin')} (${e.role || 'admin'})</strong></div>
-          <div>Target Database: <strong style="color:var(--text-primary);">${escapeHtml(e.database || 'healthcare')}</strong></div>
-          <div>Timestamp (UTC): <strong style="color:var(--text-primary);">${e.timestamp}</strong></div>
+          <div>User: <strong style="color:var(--text-primary);">${escapeHtml(e.user || 'Not recorded')} (${escapeHtml(e.role || 'Not recorded')})</strong></div>
+          <div>Database: <strong style="color:var(--text-primary);">${escapeHtml(e.database || 'Not recorded')}</strong></div>
+          <div>Time (UTC): <strong style="color:var(--text-primary);">${escapeHtml(e.timestamp || 'Not recorded')}</strong></div>
         </div>
       `;
     }
@@ -610,9 +500,9 @@ const App = {
       this.renderFullEventsTable();
       this.renderThreatsTable();
       await this.fetchStatus();
-      this.showToast('Security events cleared');
+      this.showToast('Events cleared.');
     } catch (e) {
-      this.showToast('Failed to clear events');
+      this.showToast('Could not clear events.');
     }
   },
 
@@ -621,14 +511,19 @@ const App = {
   // ---------------------------------------------------------------------------
   async loadHistory() {
     try {
-      const res = await fetch(`${this.state.apiBase}/api/history`);
+      const res = await fetch(`${this.state.apiBase}/api/history?session_id=pg_default_session`);
       if (res.ok) {
         const d = await res.json();
         this.state.history = d.history || [];
         this.renderHistoryTable();
+      } else {
+        this.state.history = [];
+        this.renderHistoryTable();
       }
     } catch (e) {
       console.warn('History load error:', e);
+      this.state.history = [];
+      this.renderHistoryTable();
     }
   },
 
@@ -637,37 +532,43 @@ const App = {
     if (!tbody) return;
 
     if (this.state.history.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No queries executed in current session sequence.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No queries run in this session.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = this.state.history.map((h, i) => `
-      <tr>
-        <td><strong>#${this.state.history.length - i}</strong></td>
-        <td style="font-family:var(--font-mono); font-size:11px;">${h.timestamp ? new Date(h.timestamp * 1000).toLocaleTimeString() : 'Recent'}</td>
-        <td style="font-family:var(--font-mono); font-size:11.5px; max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(h.query)}</td>
-        <td><span class="decision-badge ${h.decision}">${h.decision}</span></td>
-        <td>${h.estimated_rows !== undefined ? `${h.estimated_rows} rows` : 'N/A'}</td>
-        <td><a style="color:var(--sage-dark); font-weight:600; cursor:pointer;" onclick="App.reinspectHistoryQuery('${escapeHtml(h.query).replace(/'/g, "\\'")}')">Inspect</a></td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = this.state.history.map((h, i) => {
+      const query = typeof h.query === 'string' ? h.query : '';
+      const canInspect = query.trim().toLowerCase().startsWith('select') && !query.toLowerCase().includes('redacted');
+      return `
+        <tr>
+          <td><strong>#${this.state.history.length - i}</strong></td>
+          <td style="font-family:var(--font-mono); font-size:11px;">${h.timestamp ? new Date(h.timestamp * 1000).toLocaleTimeString() : 'Not recorded'}</td>
+          <td style="font-family:var(--font-mono); font-size:11.5px; max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(query || 'Unavailable')}</td>
+          <td><span class="decision-badge ${escapeHtml(h.decision || '')}">${escapeHtml(h.decision || 'Unavailable')}</span></td>
+          <td>${h.estimated_rows !== undefined && h.estimated_rows !== null ? `${h.estimated_rows} rows` : 'Unavailable'}</td>
+          <td>${canInspect
+            ? `<a style="color:var(--sage-dark); font-weight:600; cursor:pointer;" onclick="App.reinspectHistoryQuery('${escapeHtml(query).replace(/'/g, "\\'")}')">Load query</a>`
+            : '<span style="color:var(--text-muted);">Query unavailable</span>'}</td>
+        </tr>
+      `;
+    }).join('');
   },
 
   reinspectHistoryQuery(sql) {
     this.navigateTo('inspector');
-    const input = document.getElementById('inspector-sql-input');
+    const input = document.getElementById('pg-sql-input');
     if (input) input.value = sql;
-    this.showToast('Query loaded into inspector');
+    this.showToast(input ? 'Query loaded into PostgreSQL terminal' : 'PostgreSQL terminal is unavailable');
   },
 
   async clearHistory() {
     try {
-      await fetch(`${this.state.apiBase}/api/history/clear`, { method: 'DELETE' });
+      await fetch(`${this.state.apiBase}/api/history/clear?session_id=pg_default_session`, { method: 'DELETE' });
       this.state.history = [];
       this.renderHistoryTable();
-      this.showToast('Session query sequence reset');
+      this.showToast('Query history cleared.');
     } catch (e) {
-      this.showToast('Failed to clear history');
+      this.showToast('Could not clear query history.');
     }
   },
 
@@ -675,68 +576,54 @@ const App = {
   // Governance: Connections, Policies, Users, Audit
   // ---------------------------------------------------------------------------
   async loadConnections() {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/connections`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.connections = d.connections || [];
-        this.renderConnectionsTable(d.active_connection_id);
-      }
-    } catch (e) {
-      console.warn('Connections load error:', e);
-    }
-  },
-
-  renderConnectionsTable(activeId) {
-    const tbody = document.getElementById('connections-tbody');
-    if (!tbody) return;
-
-    tbody.innerHTML = this.state.connections.map(c => `
-      <tr>
-        <td><code style="font-family:var(--font-mono); font-size:11px;">${c.id}</code></td>
-        <td><strong>${escapeHtml(c.name)}</strong></td>
-        <td>${escapeHtml(c.engine)}</td>
-        <td>${escapeHtml(c.sector)}</td>
-        <td><span class="decision-badge ALLOW">${c.status}</span></td>
-        <td>${c.tls_enabled ? 'TLS 1.3' : 'Local'}</td>
-        <td>
-          ${c.id === activeId 
-            ? '<span style="color:var(--forest-deep); font-weight:700;">&bull; Active Connection</span>' 
-            : `<button class="btn btn-secondary btn-subtle" onclick="App.onDatabaseChange('${c.id}')">Switch Target</button>`
-          }
-        </td>
-      </tr>
-    `).join('');
-  },
-
-  async onDatabaseChange(dbId, notify = true) {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/connections/select`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connection_id: dbId })
-      });
-      if (res.ok) {
-        await this.fetchStatus();
-        await this.loadConnections();
-        if (notify) this.showToast(`Switched active database to ${dbId}`);
-      }
-    } catch (e) {
-      this.showToast('Failed to switch database');
-    }
+    await this.checkPgStatus();
   },
 
   async loadPolicies() {
     try {
       const res = await fetch(`${this.state.apiBase}/api/policies`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.policies = d.policies || [];
-        this.renderPoliciesTable(d.active_policy_id);
-      }
+      if (!res.ok) throw new Error('Policy data unavailable');
+      const d = await res.json();
+      this.state.policies = d.policies || [];
+      this.renderPoliciesTable(d.active_policy_id);
     } catch (e) {
       console.warn('Policies load error:', e);
+      this.state.policies = [];
+      this.renderPoliciesTable(null);
     }
+  },
+
+  async loadCurrentUser() {
+    const panel = document.getElementById('access-current-user');
+    if (panel)     panel.textContent = 'Loading your access details...';
+    try {
+      const res = await fetch(`${this.state.apiBase}/api/auth/me`);
+      if (!res.ok) throw new Error('Access details unavailable');
+      this.state.access = await res.json();
+      this.renderCurrentUser();
+    } catch (e) {
+      console.warn('Access details load error:', e);
+      this.state.access = null;
+      this.renderCurrentUser();
+    }
+  },
+
+  renderCurrentUser() {
+    const panel = document.getElementById('access-current-user');
+    if (!panel) return;
+    const user = this.state.access?.user;
+    const permissions = this.state.access?.permissions;
+    if (!user) {
+      panel.innerHTML = '<div class="pg-query-state">Your user and access details are not available.</div>';
+      return;
+    }
+    panel.innerHTML = `
+      <div><strong>User:</strong> ${escapeHtml(user.username || 'Unavailable')}</div>
+      <div><strong>Role:</strong> ${escapeHtml(user.role || 'Unavailable')}</div>
+      <div><strong>Permissions:</strong> ${Array.isArray(permissions) && permissions.length
+        ? permissions.map(permission => `<span class="col-tag">${escapeHtml(permission)}</span>`).join(' ')
+        : 'None'}</div>
+    `;
   },
 
   renderPoliciesTable(activePolicyId) {
@@ -750,11 +637,11 @@ const App = {
         <td>k &ge; ${p.min_cell_size}</td>
         <td>${p.differencing_threshold * 100}% delta</td>
         <td>&epsilon; &le; ${p.epsilon_budget_max}</td>
-        <td>${p.id === activePolicyId ? '<span class="decision-badge ALLOW">Active</span>' : '<span style="color:var(--text-muted);">Available</span>'}</td>
+        <td>${p.id === activePolicyId ? '<span class="decision-badge ALLOW">In use</span>' : '<span style="color:var(--text-muted);">Ready</span>'}</td>
         <td>
-          ${p.id === activePolicyId 
-            ? '<span style="font-weight:700; color:var(--forest-deep);">&bull; Enforced</span>' 
-            : `<button class="btn btn-secondary btn-subtle" onclick="App.onPolicyChange('${p.id}')">Apply</button>`
+          ${p.id === activePolicyId
+            ? '<span style="font-weight:700; color:var(--forest-deep);">&bull; In use</span>'
+            : `<button class="btn btn-secondary btn-subtle" onclick="App.onPolicyChange('${p.id}')">Use this rule</button>`
           }
         </td>
       </tr>
@@ -771,79 +658,30 @@ const App = {
       if (res.ok) {
         await this.fetchStatus();
         await this.loadPolicies();
-        this.showToast(`Security Policy Applied: ${policyId}`);
+        this.showToast(`Rule ${policyId} is now in use.`);
       }
     } catch (e) {
-      this.showToast('Policy switch failed');
+      this.showToast('Could not change the safety rule.');
     }
-  },
-
-  async loadUsers() {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/auth/users`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.users = d.users || [];
-        this.renderUsersTable();
-      }
-    } catch (e) {
-      console.warn('Users load error:', e);
-    }
-  },
-
-  renderUsersTable() {
-    const tbody = document.getElementById('users-tbody');
-    if (!tbody) return;
-    const currentUsername = this.state.status?.authenticated_user?.username || 'sec_admin';
-
-    tbody.innerHTML = this.state.users.map(u => `
-      <tr>
-        <td><strong>${u.username}</strong></td>
-        <td>${escapeHtml(u.name)}</td>
-        <td><span class="decision-badge ALLOW">${u.role}</span></td>
-        <td>${escapeHtml(u.department)}</td>
-        <td><code style="font-size:11px;">${(u.clearance_levels || []).join(', ')}</code></td>
-        <td>
-          ${u.username === currentUsername 
-            ? '<span style="font-weight:700; color:var(--forest-deep);">&bull; Logged In</span>'
-            : `<button class="btn btn-secondary btn-subtle" onclick="App.switchUserPersona('${u.username}')">Assume Role</button>`
-          }
-        </td>
-      </tr>
-    `).join('');
-  },
-
-  async switchUserPersona(username) {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/auth/switch-role`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      });
-      if (res.ok) {
-        await this.fetchStatus();
-        this.renderUsersTable();
-        this.showToast(`Assumed Persona: ${username}`);
-      }
-    } catch (e) {
-      this.showToast('Failed to switch user');
-    }
-  },
-
-  openUserSwitcherModal() {
-    this.navigateTo('access');
   },
 
   async loadAuditLogs() {
     try {
-      const res = await fetch(`${this.state.apiBase}/api/audit?limit=25`);
+      const res = await fetch(`${this.state.apiBase}/api/audit?limit=500`);
       if (res.ok) {
         const d = await res.json();
         this.state.auditLogs = d.logs || [];
         this.renderAuditTable();
+        if (this.state.status) this.renderStatus(this.state.status);
+      } else {
+        this.state.auditLogs = [];
+        this.renderAuditTable();
       }
     } catch (e) {
       console.warn('Audit logs load error:', e);
+      this.state.auditLogs = [];
+      this.renderAuditTable();
+      if (this.state.status) this.renderStatus(this.state.status);
     }
   },
 
@@ -852,18 +690,18 @@ const App = {
     if (!tbody) return;
 
     if (this.state.auditLogs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No audit records.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No audit records yet.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = this.state.auditLogs.map(l => `
       <tr>
-        <td><strong>#${l.index}</strong></td>
-        <td style="font-family:var(--font-mono); font-size:11px;">${l.timestamp}</td>
-        <td>${escapeHtml(l.user)}</td>
-        <td>${escapeHtml(l.event_type)}</td>
-        <td><span class="decision-badge ${l.decision}">${l.decision}</span></td>
-        <td><code style="font-family:var(--font-mono); font-size:10px; color:var(--forest-deep);">${(l.hash || '').substring(0, 24)}...</code></td>
+        <td><strong>#${escapeHtml(String(l.id ?? 'Unavailable'))}</strong></td>
+        <td style="font-family:var(--font-mono); font-size:11px;">${escapeHtml(l.timestamp || 'Not recorded')}</td>
+        <td>${escapeHtml(l.user || 'Not recorded')}</td>
+        <td>${escapeHtml(l.event_type || 'Not recorded')}</td>
+        <td><span class="decision-badge ${escapeHtml(l.decision || '')}">${escapeHtml(l.decision || 'Unavailable')}</span></td>
+        <td><code style="font-family:var(--font-mono); font-size:10px; color:var(--forest-deep);">${escapeHtml((l.record_hash || 'Unavailable').substring(0, 24))}</code></td>
       </tr>
     `).join('');
   },
@@ -874,26 +712,27 @@ const App = {
       if (res.ok) {
         const d = await res.json();
         if (d.valid) {
-          this.showToast(`Verification PASSED: SHA-256 chain intact across ${d.count} records.`);
+          this.showToast(`Audit log check passed. ${d.count} records checked.`);
         } else {
-          this.showToast(`WARNING: Hash mismatch at index #${d.broken_index}!`);
+          this.showToast(`Audit log check failed at record #${d.broken_index}.`);
         }
       }
     } catch (e) {
-      this.showToast('Cryptographic audit verification failed');
+      this.showToast('Could not check the audit log.');
     }
   },
 
   async loadAnalytics() {
     try {
       const res = await fetch(`${this.state.apiBase}/api/analytics/investigation`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.analytics = d;
-        this.renderAnalytics(d);
-      }
+      if (!res.ok) throw new Error('Analytics unavailable');
+      const d = await res.json();
+      this.state.analytics = d;
+      this.renderAnalytics(d);
     } catch (e) {
       console.warn('Analytics load error:', e);
+      this.state.analytics = null;
+      this.renderAnalytics({});
     }
   },
 
@@ -916,16 +755,28 @@ const App = {
           </div>
         `;
       }).join('');
+    } else if (cBox) {
+      cBox.innerHTML = '<div class="pg-query-state">Reports are not available.</div>';
     }
 
     // DP budget
     const dpFill = document.getElementById('dp-budget-fill');
     const dpSpent = document.getElementById('dp-spent-label');
+    const dpMax = document.getElementById('dp-max-label');
     if (dpFill && d.summary) {
-      dpFill.style.width = `${d.summary.dp_budget_percent}%`;
+      dpFill.style.width = `${Math.max(0, Math.min(100, Number(d.summary.dp_budget_percent) || 0))}%`;
+    } else if (dpFill) {
+      dpFill.style.width = '0%';
     }
     if (dpSpent && d.summary) {
       dpSpent.textContent = `${d.summary.dp_budget_spent} \u03B5`;
+    } else if (dpSpent) {
+      dpSpent.textContent = 'Unavailable';
+    }
+    if (dpMax && d.summary) {
+      dpMax.textContent = `${d.summary.dp_budget_max} \u03B5`;
+    } else if (dpMax) {
+      dpMax.textContent = 'Unavailable';
     }
   },
 
@@ -933,15 +784,53 @@ const App = {
   // Dataset Schema Explorer & Preview
   // ---------------------------------------------------------------------------
   async loadDatasets() {
+    const container = document.getElementById('datasets-container');
+    if (container) container.innerHTML = '<div class="pg-query-state" role="status">Loading table counts...</div>';
+    if (!this.state.pgStatus?.healthy) {
+      this.state.datasets = [];
+      this.renderDatasets([]);
+      return;
+    }
     try {
-      const res = await fetch(`${this.state.apiBase}/api/datasets`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.datasets = d.datasets || [];
-        this.renderDatasets(this.state.datasets);
-      }
+      const schemaResponse = await fetch(`${this.state.apiBase}/api/pg/schema`);
+      if (!schemaResponse.ok) throw new Error('Table details are not available');
+      const schema = await schemaResponse.json();
+      const countColumns = {
+        customers: 'customer_id',
+        employees: 'employee_id',
+        transactions: 'transaction_id',
+        audit_demo: 'log_id'
+      };
+      const tables = await Promise.all((schema.tables || []).map(async table => {
+        const keyColumn = countColumns[table.table];
+        if (!keyColumn || !(table.columns || []).some(column => column.name === keyColumn)) {
+          return { ...table, row_count: null };
+        }
+        try {
+          const response = await fetch(`${this.state.apiBase}/api/pg/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sql: `SELECT COUNT(${keyColumn}) FROM ${table.schema}.${table.table}`,
+              session_id: 'default_session'
+            })
+          });
+          if (!response.ok) return { ...table, row_count: null };
+          const result = await response.json();
+          const count = result.executed === true && result.decision === 'ALLOW'
+            ? Number(result.rows?.[0]?.[0])
+            : NaN;
+          return { ...table, row_count: Number.isSafeInteger(count) ? count : null };
+        } catch {
+          return { ...table, row_count: null };
+        }
+      }));
+      this.state.datasets = tables;
+      this.renderDatasets(tables);
     } catch (e) {
       console.warn('Datasets load error:', e);
+      this.state.datasets = [];
+      this.renderDatasets([]);
     }
   },
 
@@ -950,7 +839,7 @@ const App = {
     if (!container) return;
 
     if (!datasets || datasets.length === 0) {
-      container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); grid-column:1/-1;">No dataset sectors available.</div>`;
+      container.innerHTML = `<div class="pg-query-state" role="status">No tables are available. Check the database connection and account access.</div>`;
       return;
     }
 
@@ -958,87 +847,24 @@ const App = {
       <div class="dataset-card">
         <div class="dataset-card-header">
           <div>
-            <div class="section-badge" style="margin-bottom:4px;">${escapeHtml(ds.compliance)}</div>
-            <h4 style="font-size:14px; font-weight:700; color:var(--forest-deep);">${escapeHtml(ds.sector)}</h4>
-            <p style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(ds.description)}</p>
+            <div class="section-badge" style="margin-bottom:4px;">PostgreSQL · ${escapeHtml(ds.schema)}</div>
+            <h4 style="font-size:14px; font-weight:700; color:var(--forest-deep);">${escapeHtml(ds.table)}</h4>
+            <p style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">Rows: ${ds.row_count === null ? 'Not available' : escapeHtml(String(ds.row_count))}</p>
           </div>
-          <span class="decision-badge ALLOW">${ds.id.toUpperCase()}</span>
-        </div>
-
-        <div style="font-size:11px; padding:6px 10px; background:var(--surface-sage-subtle); border-radius:var(--radius-xs); border:1px solid var(--border-subtle); color:var(--forest-deep);">
-          <strong>Honeytoken Decoy:</strong> ${escapeHtml(ds.canary_record || 'Active')}
+          <span class="decision-badge ALLOW">Database</span>
         </div>
 
         <div class="dataset-table-list">
-          ${(ds.tables || []).map(tbl => `
-            <div class="dataset-table-item">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                <span style="font-family:var(--font-mono); font-weight:700; font-size:12px; color:var(--forest-deep);">
-                  &bull; ${escapeHtml(tbl.table_name)}
-                </span>
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <span style="font-size:11px; color:var(--text-secondary);">${tbl.row_count} rows</span>
-                  <button class="btn btn-secondary btn-subtle" style="font-size:10.5px; padding:2px 8px;" onclick="App.previewTable('${ds.id}', '${tbl.table_name}')">
-                    Preview &rarr;
-                  </button>
-                </div>
-              </div>
-              <div style="display:flex; flex-wrap:wrap; gap:2px;">
-                ${(tbl.columns || []).map(col => `
-                  <span class="col-tag ${col.sensitivity}" title="${col.type} - Sensitivity: ${col.sensitivity}">
-                    ${escapeHtml(col.name)}
-                  </span>
-                `).join('')}
-              </div>
+          <div class="dataset-table-item">
+            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px;">Columns this account can see:</div>
+            <div style="display:flex; flex-wrap:wrap; gap:2px;">
+              ${(ds.columns || []).map(col => `<span class="col-tag">${escapeHtml(col.name)}</span>`).join('')}
             </div>
-          `).join('')}
+            <div style="font-size:11px; color:var(--text-muted); margin-top:8px;">This account cannot view the table records.</div>
+          </div>
         </div>
       </div>
     `).join('');
-  },
-
-  async previewTable(sector, table) {
-    try {
-      const res = await fetch(`${this.state.apiBase}/api/datasets/${sector}/preview/${table}`);
-      if (res.ok) {
-        const d = await res.json();
-        this.openDatasetPreviewModal(d);
-      } else {
-        this.showToast('Unable to load table preview');
-      }
-    } catch (e) {
-      this.showToast('Failed to preview dataset table');
-    }
-  },
-
-  openDatasetPreviewModal(data) {
-    const modal = document.getElementById('dataset-preview-modal');
-    const title = document.getElementById('dataset-preview-title');
-    const body = document.getElementById('dataset-preview-body');
-    if (!modal || !body) return;
-
-    if (title) title.textContent = `Table Preview: ${data.sector} / ${data.table} (Top 10 Records)`;
-
-    const cols = data.columns || [];
-    const rows = data.rows || [];
-
-    body.innerHTML = `
-      <div class="table-responsive" style="max-height:360px; overflow-y:auto;">
-        <table class="custom-table">
-          <thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
-          <tbody>
-            ${rows.map(r => `<tr>${cols.map(c => `<td>${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    modal.classList.add('active');
-  },
-
-  closeDatasetPreviewModal() {
-    const modal = document.getElementById('dataset-preview-modal');
-    if (modal) modal.classList.remove('active');
   },
 
   // ---------------------------------------------------------------------------
@@ -1047,62 +873,126 @@ const App = {
   async checkPgStatus() {
     try {
       const res = await fetch(`${this.state.apiBase}/api/pg/status`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.pgStatus = d;
-        const statEl = document.getElementById('pg-status-summary');
-        if (statEl) {
-          statEl.innerHTML = `
-            <div>Target Host: <strong>${d.host}:${d.port}</strong></div>
-            <div>Database: <strong>${d.db}</strong></div>
-            <div>Service User: <strong>${d.user}</strong></div>
-            <div>PostgreSQL State: <strong style="color:${d.configured ? 'var(--sage-dark)' : 'var(--amber-warning)'};">${d.configured ? 'Active Credentials' : 'Local / Simulated'}</strong></div>
-          `;
-        }
+      if (!res.ok) throw new Error('Database status is not available');
+      const d = await res.json();
+      this.state.pgStatus = { db: d.db, healthy: false };
+      const statusLine = document.getElementById('pg-status-summary');
+      if (statusLine) {
+        statusLine.innerHTML = `<div>Database: <strong>${escapeHtml(d.db || 'Unavailable')}</strong></div><div>Connection: <strong>Checking...</strong></div>`;
       }
+      await this.testPgConnection();
+      return this.state.pgStatus?.healthy === true;
     } catch (e) {
       console.warn('PG status error:', e);
+      this.state.pgStatus = { healthy: false };
+      this.renderPgConnectionState(false);
+      return false;
+    }
+  },
+
+  async refreshPostgresData() {
+    const connected = await this.checkPgStatus();
+    await Promise.all([
+      connected ? this.loadDatasets() : Promise.resolve(this.renderDatasets([])),
+      this.fetchStatus(),
+      this.loadEvents(),
+      this.loadHistory(),
+      this.loadPolicies(),
+      this.loadCurrentUser(),
+      this.loadAuditLogs(),
+      this.loadAnalytics()
+    ]);
+  },
+
+  renderPgConnectionState(healthy, latency = null) {
+    const stateText = healthy ? 'Connected' : 'Not connected';
+    const summary = document.getElementById('pg-connection-summary');
+    const statusSummary = document.getElementById('pg-status-summary');
+    const testResult = document.getElementById('pg-test-result');
+    const database = this.state.pgStatus?.db;
+    const latencyText = Number.isFinite(latency) ? ` · ${latency} ms` : '';
+    const safeDatabase = database ? escapeHtml(database) : 'Unavailable';
+
+    if (summary) {
+      summary.innerHTML = `Database: <strong>${safeDatabase}</strong><br>Connection: <strong>${stateText}${latencyText}</strong>`;
+      summary.className = `pg-query-state${healthy ? '' : ' error'}`;
+    }
+    if (statusSummary) {
+      statusSummary.innerHTML = `<div>Database: <strong>${safeDatabase}</strong></div><div>Connection: <strong>${stateText}${latencyText}</strong></div>`;
+    }
+    const nameEl = document.getElementById('topbar-connection-name');
+    if (nameEl) {
+      nameEl.textContent = `${stateText} · ${database || 'PostgreSQL'}`;
+    }
+    const badge = document.getElementById('topbar-connection-badge');
+    if (badge) badge.className = `connection-indicator-badge ${healthy ? '' : 'disconnected'}`;
+    if (testResult) {
+      testResult.textContent = healthy ? `Connected${latencyText}` : 'Not connected';
+      testResult.style.color = healthy ? 'var(--sage-dark)' : 'var(--danger-muted-red)';
     }
   },
 
   async testPgConnection() {
     const resBox = document.getElementById('pg-test-result');
-    if (resBox) resBox.innerHTML = '<span style="color:var(--text-secondary);">Testing connection...</span>';
+    if (resBox) {
+      resBox.textContent = 'Checking connection...';
+      resBox.style.color = 'var(--text-secondary)';
+    }
     try {
       const res = await fetch(`${this.state.apiBase}/api/pg/test`, { method: 'POST' });
+      if (!res.ok) throw new Error('Database connection check failed');
       const d = await res.json();
-      if (resBox) {
-        if (d.healthy) {
-          resBox.innerHTML = `<span style="color:var(--sage-dark); font-weight:700;">&check; Healthy (${d.latency_ms}ms) &bull; Connected to ${d.db}</span>`;
-        } else {
-          resBox.innerHTML = `<span style="color:var(--amber-warning); font-weight:600;">&bull; Offline / Simulated (${escapeHtml(d.error || 'Database unreachable')})</span>`;
-        }
-      }
-    } catch (e) {
-      if (resBox) resBox.innerHTML = '<span style="color:var(--danger-muted-red);">Test request failed</span>';
+      this.state.pgStatus = {
+        ...this.state.pgStatus,
+        db: d.db || this.state.pgStatus?.db,
+        healthy: d.healthy === true,
+        latency_ms: d.latency_ms
+      };
+      this.renderPgConnectionState(d.healthy === true, d.latency_ms);
+      return d.healthy === true;
+    } catch {
+      this.state.pgStatus = { ...this.state.pgStatus, healthy: false };
+      this.renderPgConnectionState(false);
+      return false;
     }
   },
 
   async inspectPgQueryOnly() {
     const sql = document.getElementById('pg-sql-input')?.value.trim();
-    if (!sql) return this.showToast('Please enter a SQL query');
-
     const btn = document.getElementById('btn-pg-inspect');
+    const resultsBox = document.getElementById('pg-query-results');
+    const requestId = ++this.state.pgQueryRequestId;
+    if (!sql) {
+      if (resultsBox) resultsBox.innerHTML = '<div class="pg-query-state">Enter a query to check it. Nothing was run.</div>';
+      this.resetInspectionIntelligence();
+      return this.showToast('Enter a query first.');
+    }
     if (btn) btn.disabled = true;
+    this.resetInspectionIntelligence();
+    if (resultsBox) resultsBox.innerHTML = '<div class="pg-query-state" role="status">Checking the query. It will not run.</div>';
     try {
       const res = await fetch(`${this.state.apiBase}/api/pg/inspect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql })
+        body: JSON.stringify({ sql, session_id: 'default_session' })
       });
-      if (!res.ok) return this.showToast('PostgreSQL analysis failed');
+      if (!res.ok) throw new Error('Query check failed');
       const data = await res.json();
+      if (requestId !== this.state.pgQueryRequestId) return;
       this.renderInspectionIntelligence(data);
+      if (resultsBox) resultsBox.innerHTML = '<div class="pg-query-state">Query checked only. It was not run.</div>';
       this.showToast(data.query_is_approved
-        ? 'PostgreSQL analysis completed (no database query executed)'
-        : 'PostgreSQL query is outside the approved demo profile');
-    } catch (e) {
-      this.showToast('PostgreSQL analysis request failed');
+        ? 'Query check complete. Nothing was run.'
+        : 'This query is not allowed. It was not run.');
+    } catch {
+      if (requestId === this.state.pgQueryRequestId && resultsBox) {
+        this.renderPgQueryNotExecuted({
+          decision: 'Unavailable',
+          reasons: ['Could not reach the server to check this query.'],
+          error: true
+        }, resultsBox);
+      }
+      this.showToast('Could not check the query.');
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -1111,42 +1001,124 @@ const App = {
   async runPgQuery() {
     const input = document.getElementById('pg-sql-input');
     const sql = input?.value.trim();
-    if (!sql) return this.showToast('Please enter a SQL query');
-
     const resultsBox = document.getElementById('pg-query-results');
-    if (resultsBox) resultsBox.innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">Executing query through security gate...</div>';
+    const button = document.getElementById('btn-pg-query');
+    const requestId = ++this.state.pgQueryRequestId;
+    if (!sql) {
+      if (resultsBox) resultsBox.innerHTML = '<div class="pg-query-state">Query not run. Enter a query first.</div>';
+      this.resetInspectionIntelligence();
+      return this.showToast('Enter a query first.');
+    }
+    if (button) button.disabled = true;
+    this.resetInspectionIntelligence();
+    if (resultsBox) {
+      resultsBox.innerHTML = '<div class="pg-query-state" role="status">Checking and running the query...</div>';
+    }
 
     try {
       const res = await fetch(`${this.state.apiBase}/api/pg/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql })
+        body: JSON.stringify({ sql, session_id: 'default_session' })
       });
-      const d = await res.json();
-      if (resultsBox) {
-        if (d.blocked) {
-          resultsBox.innerHTML = `
-            <div style="background-color:var(--danger-red-bg); border:1px solid var(--danger-red-border); color:var(--danger-muted-red); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
-              <strong>Policy Gate BLOCK:</strong> ${escapeHtml(d.message || 'Execution prohibited by inference engine.')}
-            </div>
-          `;
-        } else if (d.executed) {
-          resultsBox.innerHTML = `
-            <div style="background-color:var(--success-green-bg); border:1px solid var(--success-green-border); color:var(--success-green); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
-              <strong>Executed:</strong> Retrieved ${d.row_count} rows in ${d.execution_ms}ms (Decision: ${d.decision})
-            </div>
-          `;
-        } else {
-          resultsBox.innerHTML = `
-            <div style="background-color:var(--amber-warning-bg); border:1px solid var(--amber-warning-border); color:var(--amber-warning); padding:10px; border-radius:var(--radius-sm); font-size:12px;">
-              <strong>Notice:</strong> ${escapeHtml(d.message || d.remediation || 'Query could not be executed.')}
-            </div>
-          `;
+      if (!res.ok) throw new Error('Query request failed');
+      const data = await res.json();
+      if (requestId !== this.state.pgQueryRequestId) return;
+      if (data.executed === true && data.success === true) {
+        if (!Array.isArray(data.columns) || !Array.isArray(data.rows)) {
+          throw new Error('The server returned an invalid result');
         }
+        this.renderPgQueryResults(data, resultsBox);
+      } else {
+        this.renderPgQueryNotExecuted(data, resultsBox);
       }
-    } catch (e) {
-      if (resultsBox) resultsBox.innerHTML = '<div style="font-size:12px; color:var(--danger-muted-red);">Query request failed</div>';
+      await Promise.all([
+        this.loadEvents(),
+        this.loadHistory(),
+        this.fetchStatus(),
+        this.loadAuditLogs(),
+        this.loadAnalytics()
+      ]);
+    } catch {
+      if (requestId === this.state.pgQueryRequestId) {
+        this.renderPgQueryNotExecuted({
+          decision: 'Unavailable',
+          reasons: ['Could not reach the server to run this query.'],
+          error: true
+        }, resultsBox);
+      }
+    } finally {
+      if (requestId === this.state.pgQueryRequestId && button) button.disabled = false;
     }
+  },
+
+  renderPgQueryResults(data, resultsBox) {
+    if (!resultsBox) return;
+    this.renderInspectionIntelligence(data);
+    const columns = data.columns;
+    const rows = data.rows;
+    const decision = String(data.decision || 'UNKNOWN');
+    const decisionClass = ['ALLOW', 'WARN', 'RESTRICT', 'BLOCK'].includes(decision)
+      ? decision
+      : '';
+    const rowCount = Number.isFinite(data.row_count) ? data.row_count : rows.length;
+    const latency = Number.isFinite(data.execution_latency_ms)
+      ? `${data.execution_latency_ms} ms`
+      : 'Unavailable';
+    const reasons = Array.isArray(data.reasons) ? data.reasons : [];
+    const table = rows.length && columns.length
+      ? `
+        <div class="pg-query-table-wrap">
+          <table class="custom-table">
+            <thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map(row => `
+              <tr>${columns.map((_, index) => `<td>${escapeHtml(String(row[index] ?? ''))}</td>`).join('')}</tr>
+            `).join('')}</tbody>
+          </table>
+        </div>
+      `
+      : '<div class="pg-query-state">The query ran, but returned no rows.</div>';
+
+    resultsBox.innerHTML = `
+      <div class="pg-query-summary">
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Decision</span><span class="decision-badge ${decisionClass}">${escapeHtml(decision)}</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Risk score</span><span class="pg-query-metric-value">${escapeHtml(String(data.risk_score ?? 'Not available'))}</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Result</span><span class="pg-query-metric-value">Query ran</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Rows</span><span class="pg-query-metric-value">${escapeHtml(String(rowCount))}</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Time taken</span><span class="pg-query-metric-value">${escapeHtml(latency)}</span></div>
+      </div>
+      ${reasons.length ? `<div class="pg-query-reasons"><strong>Notes</strong><ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>` : ''}
+      ${data.truncated ? '<div class="pg-query-state">Only the first 50 rows are shown.</div>' : ''}
+      ${table}
+    `;
+  },
+
+  renderPgQueryNotExecuted(data, resultsBox) {
+    if (!resultsBox) return;
+    this.renderInspectionIntelligence(data);
+    const decision = String(data.decision || 'UNKNOWN');
+    const decisionClass = ['ALLOW', 'WARN', 'RESTRICT', 'BLOCK'].includes(decision)
+      ? decision
+      : '';
+    const reasons = Array.isArray(data.reasons) && data.reasons.length
+      ? data.reasons
+      : [data.blocked
+        ? 'The safety check did not allow this query.'
+        : 'The query could not be completed.'];
+    const isApiError = Boolean(data.error);
+
+    resultsBox.innerHTML = `
+      <div class="pg-query-summary">
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Decision</span><span class="decision-badge ${decisionClass}">${escapeHtml(decision)}</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Risk score</span><span class="pg-query-metric-value">${escapeHtml(String(data.risk_score ?? 'Not available'))}</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Result</span><span class="pg-query-metric-value">Query not run</span></div>
+        <div class="pg-query-metric"><span class="pg-query-metric-label">Rows</span><span class="pg-query-metric-value">0</span></div>
+      </div>
+      <div class="pg-query-state ${isApiError ? 'error' : 'blocked'}" role="${isApiError ? 'alert' : 'status'}">
+        ${isApiError ? 'The query could not be completed.' : escapeHtml(data.message || data.remediation || 'The query was not run.')}
+      </div>
+      <div class="pg-query-reasons"><strong>Why</strong><ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>
+    `;
   },
 
   filterEvents(searchTerm) {

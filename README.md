@@ -45,7 +45,7 @@ cd "C:\Users\SUVI\OneDrive\Desktop\RECON_X"
 pip install -r requirements.txt
 ```
 
-This installs FastAPI, uvicorn, psycopg (PostgreSQL driver), python-dotenv, pytest, and supporting libraries.
+This installs FastAPI, uvicorn, psycopg with its bundled binary PostgreSQL driver, python-dotenv, pytest, and supporting libraries. The bundled driver avoids requiring a separate libpq installation on Windows.
 
 ### 3 — Create your environment file
 
@@ -149,12 +149,19 @@ Replace `your_real_password_here` with the same password you put in `.env`.
 python -m pytest tests -v
 ```
 
-Tests that require a live PostgreSQL connection are automatically **skipped** when `PGPASSWORD` is not set — so the existing 20 security-engine tests always pass.
+Live PostgreSQL tests are **skipped by default**; setting `PGPASSWORD` alone does not enable them. The parser, policy-gate, and mocked PostgreSQL tests run without a live database.
 
-To run the full test suite including PostgreSQL tests, make sure your `.env` is configured and the server is not running on the same port, then:
+To run the live PostgreSQL tests, make sure your `.env` is configured, the database is available, and the server is not running on the same port. Then explicitly enable the integration tests:
 
 ```powershell
+$env:RECONX_RUN_PG_INTEGRATION = "1"
 python -m pytest tests -v
+```
+
+To return to the default test behavior in the current PowerShell session:
+
+```powershell
+Remove-Item Env:RECONX_RUN_PG_INTEGRATION
 ```
 
 ### What the tests cover
@@ -205,7 +212,8 @@ Full interactive API docs: **http://localhost:8000/docs**
 | Server won't start on port 8000 | Change the port in `run.py`: `uvicorn.run(..., port=8001)` |
 | PG Test says "Connection failed" | Check `.env` values, confirm PostgreSQL is running: `pg_isready -U reconx_reader -d reconx_demo` |
 | "Only SELECT statements permitted" | Only read-only SELECT queries are allowed through the PG endpoint. |
-| Tests show SKIP for PG tests | Normal — set PGPASSWORD in your environment and re-run. |
+| Tests show SKIP for live PG tests | Normal — set `RECONX_RUN_PG_INTEGRATION=1` and configure database credentials to run them. |
+| `psycopg` reports "no pq wrapper available" | Run `pip install -r requirements.txt` to install the bundled binary driver. |
 
 ---
 
