@@ -8,7 +8,10 @@ const App = {
     status: null,
     scenarios: [],
     recentEvents: [],
+    eventLoadError: false,
     history: [],
+    historySessionId: null,
+    historyLoadError: false,
     policies: [],
     access: null,
     auditLogs: [],
@@ -17,13 +20,52 @@ const App = {
     pgStatus: null,
     pgQueryRequestId: 0,
     currentView: 'overview',
+    navigationTarget: null,
+    navigationScrollTimer: null,
     apiBase: ''
   },
 
   async init(apiBase = '') {
     this.state.apiBase = apiBase;
+    this.initSqlEditor();
     await this.refreshPostgresData();
     this.initScrollSpy();
+  },
+
+  initSqlEditor() {
+    const input = document.getElementById('pg-sql-input');
+    const highlight = document.getElementById('sql-editor-highlight');
+    if (!input || !highlight) return;
+    const update = () => {
+      this.updateSqlHighlight(input, highlight);
+      highlight.scrollTop = input.scrollTop;
+      highlight.scrollLeft = input.scrollLeft;
+    };
+    input.addEventListener('input', update);
+    input.addEventListener('scroll', update);
+    update();
+  },
+
+  updateSqlHighlight(input, highlight) {
+    const sql = input.value;
+    const tokenPattern = /(--[^\r\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|\b(?:SELECT|COUNT|FROM|WHERE|AND|OR|NOT|AS|DISTINCT|GROUP|BY|ORDER|LIMIT|OFFSET|HAVING|JOIN|INNER|LEFT|RIGHT|ON|IS|NULL|IN|LIKE|BETWEEN|CASE|WHEN|THEN|ELSE|END|ASC|DESC|TRUE|FALSE)\b|\b\d+(?:\.\d+)?\b)/gi;
+    let cursor = 0;
+    let html = '';
+    for (const match of sql.matchAll(tokenPattern)) {
+      const token = match[0];
+      html += escapeHtml(sql.slice(cursor, match.index));
+      const type = token.startsWith('--') || token.startsWith('/*')
+        ? 'comment'
+        : token.startsWith("'") || token.startsWith('"')
+          ? 'string'
+          : /^\d/.test(token)
+            ? 'number'
+            : 'keyword';
+      html += `<span class="sql-token-${type}">${escapeHtml(token)}</span>`;
+      cursor = match.index + token.length;
+    }
+    html += escapeHtml(sql.slice(cursor));
+    highlight.innerHTML = `${html || '&nbsp;'}${sql.endsWith('\n') ? '<br>' : ''}`;
   },
 
   // ---------------------------------------------------------------------------
@@ -35,28 +77,65 @@ const App = {
 
     this.closeSidebar();
 
+    this.state.navigationTarget = sectionId;
+    clearTimeout(this.state.navigationScrollTimer);
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    this.state.navigationScrollTimer = setTimeout(() => this.finishScrollNavigation(), 180);
+    this.updateSidebarActive(sectionId);
+  },
+
+  finishScrollNavigation() {
+    const sectionId = this.state.navigationTarget;
+    if (!sectionId) return;
+
+    clearTimeout(this.state.navigationScrollTimer);
+    this.state.navigationTarget = null;
+    this.state.navigationScrollTimer = null;
     this.updateSidebarActive(sectionId);
   },
 
   updateSidebarActive(sectionId) {
+    const defaultViews = {
+      'section-overview': 'overview',
+      'section-monitoring': 'monitoring',
+      'section-connections': 'connections',
+      'section-audit': 'events',
+      'section-policies': 'policies',
+      'section-history': 'history',
+      'section-workspace': 'workspace',
+      'section-timeline': 'timeline',
+      'section-sessions': 'sessions'
+    };
+    const preserveSubView = (
+      sectionId === 'section-policies' && ['settings', 'access'].includes(this.state.currentView)
+    ) || (
+      sectionId === 'section-audit' && this.state.currentView === 'audit'
+    ) || (
+      sectionId === 'section-connections' && ['datasets', 'pg'].includes(this.state.currentView)
+    );
+    if (defaultViews[sectionId] && !preserveSubView) {
+      this.state.currentView = defaultViews[sectionId];
+    }
+
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
       const target = link.getAttribute('data-section') || link.getAttribute('onclick');
-      if (target && (target.includes(sectionId) || target === sectionId)) {
-        link.classList.add('active');
-      } else {
-        link.classList.remove('active');
-      }
+      const navView = link.getAttribute('data-nav-view');
+      const active = navView
+        ? navView === this.state.currentView
+        : target && (target.includes(sectionId) || target === sectionId);
+      link.classList.toggle('active', Boolean(active));
     });
 
     const titles = {
       'section-overview': 'Overview',
-      'section-monitoring': 'Query Checks and Alerts',
+      'section-monitoring': 'Query Alerts',
       'section-connections': 'Database and Tables',
-      'section-audit': 'Audit Log and Events',
-      'section-policies': 'Safety Rules and User Access',
-      'section-history': 'Query History and Results',
-      'section-workspace': 'Check and Run a Query'
+      'section-audit': this.state.currentView === 'audit' ? 'Audit Log' : 'Security Events',
+      'section-policies': this.state.currentView === 'settings' ? 'Settings' : 'Policy Center',
+      'section-history': 'Query History',
+      'section-workspace': 'Query Lab',
+      'section-timeline': 'Attack Timeline',
+      'section-sessions': 'Sessions'
     };
     const bc = document.getElementById('topbar-breadcrumb');
     if (bc && titles[sectionId]) bc.textContent = titles[sectionId];
@@ -69,6 +148,8 @@ const App = {
       overview: { section: 'section-overview' },
       inspector: { section: 'section-workspace' },
       workspace: { section: 'section-workspace' },
+      timeline: { section: 'section-timeline' },
+      sessions: { section: 'section-sessions' },
       threats: { section: 'section-monitoring' },
       monitoring: { section: 'section-monitoring' },
       history: { section: 'section-history' },
@@ -91,12 +172,13 @@ const App = {
     this.scrollToSection(mapping.section);
 
     if (viewId === 'overview') this.fetchStatus();
-    if (viewId === 'events' || viewId === 'threats') this.loadEvents();
-    if (viewId === 'history') this.loadHistory();
+    if (viewId === 'events' || viewId === 'threats' || viewId === 'timeline') this.loadEvents();
+    if (viewId === 'history' || viewId === 'sessions') this.loadHistory();
     if (viewId === 'analytics') this.loadAnalytics();
     if (viewId === 'audit') this.loadAuditLogs();
     if (viewId === 'connections') this.loadConnections();
     if (viewId === 'datasets') this.loadDatasets();
+    if (viewId === 'policies') this.loadPolicies();
   },
 
   switchTab(tabGroupId, tabId) {
@@ -133,9 +215,15 @@ const App = {
 
   initScrollSpy() {
     const sections = document.querySelectorAll('.dashboard-section[id]');
+    window.addEventListener('scroll', () => {
+      if (!this.state.navigationTarget) return;
+      clearTimeout(this.state.navigationScrollTimer);
+      this.state.navigationScrollTimer = setTimeout(() => this.finishScrollNavigation(), 180);
+    }, { passive: true });
     if (!sections.length || !('IntersectionObserver' in window)) return;
 
     const observer = new IntersectionObserver((entries) => {
+      if (this.state.navigationTarget) return;
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           this.updateSidebarActive(entry.target.id);
@@ -177,6 +265,9 @@ const App = {
     const latEl = document.getElementById('topbar-connection-latency');
     const togLabel = document.getElementById('topbar-toggle-label');
     const gateState = document.getElementById('gate-state');
+    const systemState = document.getElementById('topbar-system-status');
+    const systemLabel = document.getElementById('topbar-system-status-label');
+    const overviewState = document.getElementById('overview-protection-state');
 
     if (nameEl) nameEl.textContent = this.state.pgStatus?.db || 'PostgreSQL';
     if (latEl) latEl.textContent = this.state.pgStatus?.healthy
@@ -186,40 +277,37 @@ const App = {
       badge.className = `connection-indicator-badge ${this.state.pgStatus?.healthy ? '' : 'disconnected'}`;
     }
     if (togLabel) {
-      togLabel.textContent = s.proxy_running ? 'Protection On' : 'Protection Paused';
+      togLabel.textContent = s.proxy_running ? 'Pause Protection' : 'Resume Protection';
+    }
+    const proxyToggle = document.getElementById('topbar-proxy-toggle');
+    if (proxyToggle) {
+      proxyToggle.title = s.proxy_running ? 'Pause protection' : 'Resume protection';
+    }
+    if (systemLabel) {
+      systemLabel.textContent = s.proxy_running ? 'Protection Active' : 'Protection Paused';
+    }
+    if (systemState) {
+      systemState.className = `system-status-badge ${s.proxy_running ? 'is-active' : 'is-paused'}`;
+    }
+    if (overviewState) {
+      overviewState.textContent = s.proxy_running ? 'Active' : 'Paused';
+      overviewState.className = `status-indicator ${s.proxy_running ? 'is-active' : 'is-paused'}`;
     }
     if (gateState) {
       gateState.textContent = s.proxy_running ? 'Active' : 'Paused';
       gateState.className = `decision-badge ${s.proxy_running ? 'ALLOW' : 'BLOCK'}`;
     }
 
-    // Topbar User info
-    if (s.authenticated_user) {
-      const u = s.authenticated_user;
-      const avatar = document.getElementById('topbar-user-avatar');
-      const uname = document.getElementById('topbar-user-name');
-      const urole = document.getElementById('topbar-user-role');
-      if (avatar) avatar.textContent = u.username.substring(0, 2).toUpperCase();
-      if (uname) uname.textContent = u.username;
-      if (urole) urole.textContent = u.role.replace('_', ' ');
-    }
-
     // Update Overview KPIs
     const blockedCount = s.blocked_count || 0;
     const totalEvents = s.events_count || 0;
-    const auditCount = s.audit_logs_count || 0;
-
-    const elInspected = document.getElementById('kpi-inspected');
     const elThreats = document.getElementById('kpi-threats');
-    const elBlocked = document.getElementById('kpi-blocked');
     const elHighRisk = document.getElementById('kpi-highrisk');
     const elAvgScore = document.getElementById('kpi-avgscore');
     const elDbStatus = document.getElementById('kpi-dbstatus');
     const elDbEngine = document.getElementById('kpi-dbengine');
 
-    if (elInspected) elInspected.textContent = auditCount;
     if (elThreats) elThreats.textContent = totalEvents;
-    if (elBlocked) elBlocked.textContent = blockedCount;
     if (elHighRisk) elHighRisk.textContent = this.state.auditLogs.length
       ? this.state.auditLogs.filter(log => Number(log.risk_score) >= 60).length
       : 'No records';
@@ -280,6 +368,14 @@ const App = {
     const score = d.risk_score !== undefined ? d.risk_score : (d.decision?.risk_score ?? null);
     const reasons = d.reasons || d.decision?.reasons || [];
     const latency = d.analysis_latency_ms ?? d.execution_latency_ms ?? null;
+    const factors = d.factors || d.decision?.factors || {};
+    const population = factors.estimated_population_size ?? factors.population_size ?? d.population_size;
+    const relatedMatch = d.differencing_match ?? d.decision?.differencing_match ?? factors.differencing_match;
+    const relatedDetected = (
+      relatedMatch !== null && relatedMatch !== undefined
+    ) || factors.differencing_attack === true || factors.progressive_filtering === true;
+    const relatedChecksReported = typeof factors.differencing_attack === 'boolean'
+      || typeof factors.progressive_filtering === 'boolean';
 
     // Badges & Score
     const badge = document.getElementById('analysis-decision-badge');
@@ -319,6 +415,20 @@ const App = {
     const tPol = document.getElementById('telemetry-policy');
     if (tLat) tLat.textContent = latency === null ? 'Unavailable' : `${latency} ms`;
     if (tPol) tPol.textContent = this.state.status?.active_policy?.name || 'Unavailable';
+    const populationEl = document.getElementById('query-population-size');
+    const relatedEl = document.getElementById('query-related-info');
+    if (populationEl) {
+      populationEl.textContent = typeof population === 'number' && Number.isFinite(population)
+        ? String(population)
+        : 'Not reported';
+    }
+    if (relatedEl) {
+      relatedEl.textContent = relatedDetected
+        ? 'Pattern detected'
+        : relatedChecksReported
+          ? 'No pattern detected'
+          : 'Not reported';
+    }
   },
 
   resetInspectionIntelligence() {
@@ -328,6 +438,8 @@ const App = {
     const factors = document.getElementById('analysis-factors-list');
     const latency = document.getElementById('telemetry-latency');
     const policy = document.getElementById('telemetry-policy');
+    const population = document.getElementById('query-population-size');
+    const related = document.getElementById('query-related-info');
 
     if (badge) {
       badge.className = 'decision-badge';
@@ -341,6 +453,8 @@ const App = {
     if (factors) factors.innerHTML = '<div class="factor-item">Waiting for the current query analysis.</div>';
     if (latency) latency.textContent = 'Pending';
     if (policy) policy.textContent = 'Unavailable';
+    if (population) population.textContent = 'Not reported';
+    if (related) related.textContent = 'Not reported';
   },
 
   // ---------------------------------------------------------------------------
@@ -349,27 +463,139 @@ const App = {
   async loadEvents() {
     try {
       const res = await fetch(`${this.state.apiBase}/api/events?limit=50`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.recentEvents = d.events || [];
-        this.renderOverviewEventsTable();
-        this.renderFullEventsTable();
-        this.renderThreatsTable();
-        if (this.state.status) this.renderStatus(this.state.status);
-      } else {
-        this.state.recentEvents = [];
-        this.renderOverviewEventsTable();
-        this.renderFullEventsTable();
-        this.renderThreatsTable();
-      }
-    } catch (e) {
-      console.warn('Events load error:', e);
-      this.state.recentEvents = [];
+      if (!res.ok) throw new Error('Security events are not available');
+      const d = await res.json();
+      this.state.recentEvents = Array.isArray(d.events) ? d.events : [];
+      this.state.eventLoadError = false;
       this.renderOverviewEventsTable();
       this.renderFullEventsTable();
       this.renderThreatsTable();
+      this.renderAttackTimeline();
+      this.renderRiskActivityChart();
+      const alertCount = this.state.recentEvents.filter(event => event.decision !== 'ALLOW').length;
+      const alertCountEl = document.getElementById('topbar-alert-count');
+      if (alertCountEl) alertCountEl.textContent = alertCount;
+      if (this.state.status) this.renderStatus(this.state.status);
+    } catch (e) {
+      console.warn('Events load error:', e);
+      this.state.recentEvents = [];
+      this.state.eventLoadError = true;
+      this.renderOverviewEventsTable();
+      this.renderFullEventsTable();
+      this.renderThreatsTable();
+      this.renderAttackTimeline();
+      this.renderRiskActivityChart();
+      const alertCountEl = document.getElementById('topbar-alert-count');
+      if (alertCountEl) alertCountEl.textContent = '—';
       if (this.state.status) this.renderStatus(this.state.status);
     }
+  },
+
+  renderAttackTimeline() {
+    const container = document.getElementById('attack-timeline');
+    if (!container) return;
+    if (this.state.eventLoadError) {
+      container.innerHTML = '<div class="pg-query-state error" role="alert">Could not load security events.</div>';
+      return;
+    }
+    if (this.state.recentEvents.length === 0) {
+      container.innerHTML = '<div class="pg-query-state" role="status">No security events have been reported.</div>';
+      return;
+    }
+
+    const factorLabels = {
+      canary_tripwire: 'Canary alert',
+      differencing_attack: 'Related query pattern',
+      progressive_filtering: 'Progressive filters',
+      population_narrowing: 'Small group',
+      role_privilege_mismatch: 'Role mismatch'
+    };
+    const chronologicalEvents = this.state.recentEvents.slice().reverse();
+    container.innerHTML = chronologicalEvents.map(event => {
+      const decision = String(event.decision || 'Unavailable');
+      const state = decision === 'ALLOW' ? 'allow' : decision === 'WARN' || decision === 'RESTRICT' ? 'warn' : 'block';
+      const riskScore = typeof event.risk_score === 'number' && Number.isFinite(event.risk_score)
+        ? `${event.risk_score} / 100`
+        : 'Not reported';
+      const factors = Object.entries(event.factors || {})
+        .filter(([, active]) => active === true)
+        .map(([name]) => factorLabels[name] || name.replace(/_/g, ' '));
+      const reasons = Array.isArray(event.reasons) ? event.reasons : [];
+      return `
+        <button class="timeline-item ${state}" type="button" role="listitem" data-event-id="${escapeHtml(String(event.id || ''))}">
+          <span class="timeline-marker" aria-hidden="true"></span>
+          <span class="timeline-content">
+            <span class="timeline-topline">
+              <span class="timeline-event-name">${escapeHtml((event.event_type || 'Security event').replace(/_/g, ' '))}</span>
+              <span class="decision-badge ${['ALLOW', 'WARN', 'RESTRICT', 'BLOCK'].includes(decision) ? decision : ''}">${escapeHtml(decision)}</span>
+            </span>
+            <span class="timeline-meta">
+              <span>${escapeHtml(String(event.id || 'Event ID unavailable'))}</span>
+              <span>${escapeHtml(event.timestamp || 'Time not reported')}</span>
+              <span>${escapeHtml(event.user || 'User not reported')}</span>
+              <span>Risk ${escapeHtml(riskScore)}</span>
+            </span>
+            ${factors.length ? `<span class="timeline-tags">${factors.map(factor => `<span class="timeline-tag">${escapeHtml(factor)}</span>`).join('')}</span>` : ''}
+            ${reasons.length ? `<span class="timeline-reasons">${reasons.map(reason => `<span>${escapeHtml(reason)}</span>`).join('')}</span>` : ''}
+          </span>
+        </button>
+      `;
+    }).join('');
+    container.querySelectorAll('.timeline-item').forEach(item => {
+      item.addEventListener('click', () => this.openEventDrawer(item.dataset.eventId));
+    });
+  },
+
+  renderRiskActivityChart() {
+    const container = document.getElementById('risk-activity-chart');
+    if (!container) return;
+    if (this.state.eventLoadError) {
+      container.innerHTML = '<div class="pg-query-state error" role="alert">Could not load risk activity.</div>';
+      return;
+    }
+
+    const events = this.state.recentEvents
+      .filter(event => typeof event.risk_score === 'number' && Number.isFinite(event.risk_score))
+      .slice()
+      .reverse();
+    if (events.length === 0) {
+      container.innerHTML = '<div class="pg-query-state" role="status">No risk scores have been reported yet.</div>';
+      return;
+    }
+
+    const width = 760;
+    const height = 220;
+    const left = 44;
+    const right = 18;
+    const top = 14;
+    const bottom = 30;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const points = events.map((event, index) => {
+      const x = events.length === 1 ? left + plotWidth / 2 : left + (index / (events.length - 1)) * plotWidth;
+      const score = Math.max(0, Math.min(100, event.risk_score));
+      const y = top + ((100 - score) / 100) * plotHeight;
+      return { event, x, y };
+    });
+    const line = points.map(point => `${point.x},${point.y}`).join(' ');
+    const grid = [0, 50, 100].map(score => {
+      const y = top + ((100 - score) / 100) * plotHeight;
+      return `<g class="chart-grid-line"><line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}"></line><text x="0" y="${y + 4}">${score}</text></g>`;
+    }).join('');
+    const circles = points.map(({ event, x, y }) => `
+      <circle class="chart-point" cx="${x}" cy="${y}" r="4">
+        <title>${escapeHtml(String(event.id || 'Event'))}: risk ${escapeHtml(String(event.risk_score))} at ${escapeHtml(event.timestamp || 'time not reported')}</title>
+      </circle>
+    `).join('');
+    container.innerHTML = `
+      <svg class="risk-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Risk scores from ${points.length} server-reported events">
+        ${grid}
+        <polyline class="chart-risk-line" points="${line}"></polyline>
+        ${circles}
+        <text class="chart-axis-caption" x="${left}" y="${height - 5}">Earlier events</text>
+        <text class="chart-axis-caption" x="${width - right}" y="${height - 5}" text-anchor="end">Recent events</text>
+      </svg>
+    `;
   },
 
   renderOverviewEventsTable() {
@@ -377,7 +603,8 @@ const App = {
     if (!tbody) return;
 
     if (this.state.recentEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events yet. Run a query to see activity here.</td></tr>`;
+      const message = this.state.eventLoadError ? 'Could not load events.' : 'No events yet. Run a query to see activity here.';
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty-state">${message}</td></tr>`;
       return;
     }
 
@@ -399,12 +626,13 @@ const App = {
     if (!tbody) return;
 
     if (this.state.recentEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No events yet.</td></tr>`;
+      const message = this.state.eventLoadError ? 'Could not load events.' : 'No events yet.';
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty-state">${message}</td></tr>`;
       return;
     }
 
     tbody.innerHTML = this.state.recentEvents.map(e => `
-      <tr onclick="App.openEventDrawer('${e.id}')">
+      <tr data-decision="${escapeHtml(e.decision || '')}" data-severity="${escapeHtml(e.severity || '')}" onclick="App.openEventDrawer('${e.id}')">
         <td><strong>${e.id}</strong></td>
         <td style="font-family:var(--font-mono); font-size:11px;">${e.timestamp}</td>
         <td>${escapeHtml((e.event_type || 'Not recorded').replace(/_/g, ' '))}</td>
@@ -414,6 +642,7 @@ const App = {
         <td style="font-family:var(--font-mono); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(e.query || 'Not recorded')}</td>
       </tr>
     `).join('');
+    this.filterEvents();
   },
 
   renderThreatsTable() {
@@ -422,7 +651,8 @@ const App = {
 
     const threatEvents = this.state.recentEvents.filter(e => e.decision !== 'ALLOW');
     if (threatEvents.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No alerts found.</td></tr>`;
+      const message = this.state.eventLoadError ? 'Could not load alerts.' : 'No alerts found.';
+      tbody.innerHTML = `<tr><td colspan="6" class="table-empty-state">${message}</td></tr>`;
       return;
     }
 
@@ -477,6 +707,7 @@ const App = {
         </div>
 
         <div style="font-size:11.5px; color:var(--text-secondary); display:flex; flex-direction:column; gap:4px; padding-top:10px; border-top:1px solid var(--border-subtle);">
+          <div>Event: <strong style="color:var(--text-primary);">${escapeHtml((e.event_type || 'Not reported').replace(/_/g, ' '))}</strong></div>
           <div>User: <strong style="color:var(--text-primary);">${escapeHtml(e.user || 'Not recorded')} (${escapeHtml(e.role || 'Not recorded')})</strong></div>
           <div>Database: <strong style="color:var(--text-primary);">${escapeHtml(e.database || 'Not recorded')}</strong></div>
           <div>Time (UTC): <strong style="color:var(--text-primary);">${escapeHtml(e.timestamp || 'Not recorded')}</strong></div>
@@ -512,18 +743,48 @@ const App = {
   async loadHistory() {
     try {
       const res = await fetch(`${this.state.apiBase}/api/history?session_id=pg_default_session`);
-      if (res.ok) {
-        const d = await res.json();
-        this.state.history = d.history || [];
-        this.renderHistoryTable();
-      } else {
-        this.state.history = [];
-        this.renderHistoryTable();
-      }
+      if (!res.ok) throw new Error('Query history is not available');
+      const d = await res.json();
+      this.state.history = Array.isArray(d.history) ? d.history : [];
+      this.state.historySessionId = typeof d.session_id === 'string' ? d.session_id : null;
+      this.state.historyLoadError = false;
+      this.renderHistoryTable();
+      this.renderSessionSummary(d.query_count);
     } catch (e) {
       console.warn('History load error:', e);
       this.state.history = [];
+      this.state.historySessionId = null;
+      this.state.historyLoadError = true;
       this.renderHistoryTable();
+      this.renderSessionSummary(null);
+    }
+  },
+
+  renderSessionSummary(queryCount) {
+    const sessionId = document.getElementById('session-id-value');
+    const count = document.getElementById('session-query-count');
+    const latestActivity = document.getElementById('session-last-activity');
+    const sessionRisk = document.getElementById('session-risk-value');
+    if (sessionId) {
+      sessionId.textContent = this.state.historyLoadError
+        ? 'Unavailable'
+        : this.state.historySessionId || 'Not reported';
+    }
+    if (count) {
+      count.textContent = this.state.historyLoadError
+        ? 'Unavailable'
+        : Number.isSafeInteger(queryCount) ? String(queryCount) : String(this.state.history.length);
+    }
+    const latestTimestamp = this.state.history[0]?.timestamp;
+    if (latestActivity) {
+      latestActivity.textContent = this.state.historyLoadError
+        ? 'Unavailable'
+        : Number.isFinite(latestTimestamp)
+          ? new Date(latestTimestamp * 1000).toLocaleString()
+          : 'No activity reported';
+    }
+    if (sessionRisk) {
+      sessionRisk.textContent = this.state.historyLoadError ? 'Unavailable' : 'Not reported';
     }
   },
 
@@ -531,6 +792,10 @@ const App = {
     const tbody = document.getElementById('history-tbody');
     if (!tbody) return;
 
+    if (this.state.historyLoadError) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty-state">Could not load query history.</td></tr>';
+      return;
+    }
     if (this.state.history.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No queries run in this session.</td></tr>`;
       return;
@@ -557,7 +822,11 @@ const App = {
   reinspectHistoryQuery(sql) {
     this.navigateTo('inspector');
     const input = document.getElementById('pg-sql-input');
-    if (input) input.value = sql;
+    if (input) {
+      input.value = sql;
+      const highlight = document.getElementById('sql-editor-highlight');
+      if (highlight) this.updateSqlHighlight(input, highlight);
+    }
     this.showToast(input ? 'Query loaded into PostgreSQL terminal' : 'PostgreSQL terminal is unavailable');
   },
 
@@ -613,16 +882,25 @@ const App = {
     if (!panel) return;
     const user = this.state.access?.user;
     const permissions = this.state.access?.permissions;
+    const avatar = document.getElementById('topbar-user-avatar');
+    const username = document.getElementById('topbar-user-name');
+    const role = document.getElementById('topbar-user-role');
     if (!user) {
       panel.innerHTML = '<div class="pg-query-state">Your user and access details are not available.</div>';
+      if (avatar) avatar.textContent = '—';
+      if (username) username.textContent = 'User unavailable';
+      if (role) role.textContent = 'Access not loaded';
       return;
     }
+    if (avatar) avatar.textContent = String(user.username || '—').slice(0, 2).toUpperCase();
+    if (username) username.textContent = user.username || 'User unavailable';
+    if (role) role.textContent = user.role ? user.role.replace(/_/g, ' ') : 'Role not reported';
     panel.innerHTML = `
       <div><strong>User:</strong> ${escapeHtml(user.username || 'Unavailable')}</div>
       <div><strong>Role:</strong> ${escapeHtml(user.role || 'Unavailable')}</div>
       <div><strong>Permissions:</strong> ${Array.isArray(permissions) && permissions.length
         ? permissions.map(permission => `<span class="col-tag">${escapeHtml(permission)}</span>`).join(' ')
-        : 'None'}</div>
+        : 'Not reported'}</div>
     `;
   },
 
@@ -737,14 +1015,45 @@ const App = {
   },
 
   renderAnalytics(d) {
+    const breakdown = d.decision_breakdown && typeof d.decision_breakdown === 'object'
+      ? d.decision_breakdown
+      : null;
+    const hasCount = value => typeof value === 'number' && Number.isFinite(value);
+    const countFor = key => breakdown && hasCount(breakdown[key]) ? breakdown[key] : null;
+    const allowed = countFor('ALLOW');
+    const warned = countFor('WARN');
+    const restricted = countFor('RESTRICT');
+    const blocked = countFor('BLOCK');
+    const suspicious = warned !== null && restricted !== null ? warned + restricted : null;
+    const summary = d.summary && typeof d.summary === 'object' ? d.summary : null;
+    const reportedTotal = summary && hasCount(summary.total_queries_analyzed)
+      ? summary.total_queries_analyzed
+      : null;
+    const allDecisionsReported = [allowed, warned, restricted, blocked].every(value => value !== null);
+    const total = reportedTotal !== null
+      ? reportedTotal
+      : allDecisionsReported
+        ? allowed + warned + restricted + blocked
+        : null;
+    const kpiValues = {
+      'kpi-inspected': total,
+      'kpi-allowed': allowed,
+      'kpi-suspicious': suspicious,
+      'kpi-blocked': blocked
+    };
+    Object.entries(kpiValues).forEach(([id, value]) => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = value === null ? 'Unavailable' : String(value);
+    });
+
     // Decision breakdown bars
     const cBox = document.getElementById('analytics-decisions-chart');
-    if (cBox && d.decision_breakdown) {
-      const total = Object.values(d.decision_breakdown).reduce((a, b) => a + b, 0) || 1;
-      cBox.innerHTML = Object.entries(d.decision_breakdown).map(([k, count]) => {
-        const pct = Math.round((count / total) * 100);
+    if (cBox && breakdown && Object.values(breakdown).every(hasCount)) {
+      const decisionTotal = Object.values(breakdown).reduce((sum, count) => sum + count, 0);
+      cBox.innerHTML = decisionTotal > 0 ? Object.entries(breakdown).map(([k, count]) => {
+        const pct = Math.round((count / decisionTotal) * 100);
         return `
-          <div>
+          <div class="decision-breakdown-row">
             <div style="display:flex; justify-content:space-between; font-size:11.5px; margin-bottom:3px;">
               <span><strong>${k}</strong></span>
               <span>${count} (${pct}%)</span>
@@ -754,7 +1063,7 @@ const App = {
             </div>
           </div>
         `;
-      }).join('');
+      }).join('') : '<div class="pg-query-state">No query decisions have been recorded.</div>';
     } else if (cBox) {
       cBox.innerHTML = '<div class="pg-query-state">Reports are not available.</div>';
     }
@@ -763,18 +1072,18 @@ const App = {
     const dpFill = document.getElementById('dp-budget-fill');
     const dpSpent = document.getElementById('dp-spent-label');
     const dpMax = document.getElementById('dp-max-label');
-    if (dpFill && d.summary) {
-      dpFill.style.width = `${Math.max(0, Math.min(100, Number(d.summary.dp_budget_percent) || 0))}%`;
+    if (dpFill && summary && hasCount(summary.dp_budget_percent)) {
+      dpFill.style.width = `${Math.max(0, Math.min(100, summary.dp_budget_percent))}%`;
     } else if (dpFill) {
       dpFill.style.width = '0%';
     }
-    if (dpSpent && d.summary) {
-      dpSpent.textContent = `${d.summary.dp_budget_spent} \u03B5`;
+    if (dpSpent && summary && hasCount(summary.dp_budget_spent)) {
+      dpSpent.textContent = `${summary.dp_budget_spent} \u03B5`;
     } else if (dpSpent) {
       dpSpent.textContent = 'Unavailable';
     }
-    if (dpMax && d.summary) {
-      dpMax.textContent = `${d.summary.dp_budget_max} \u03B5`;
+    if (dpMax && summary && hasCount(summary.dp_budget_max)) {
+      dpMax.textContent = `${summary.dp_budget_max} \u03B5`;
     } else if (dpMax) {
       dpMax.textContent = 'Unavailable';
     }
@@ -1122,11 +1431,16 @@ const App = {
   },
 
   filterEvents(searchTerm) {
-    const term = (searchTerm || '').toLowerCase();
+    const searchInput = document.getElementById('events-filter-input');
+    const decisionFilter = document.getElementById('events-decision-filter')?.value || '';
+    const severityFilter = document.getElementById('events-severity-filter')?.value || '';
+    const term = String(searchTerm ?? searchInput?.value ?? '').trim().toLowerCase();
     const rows = document.querySelectorAll('#events-full-tbody tr');
     rows.forEach(row => {
       const text = row.textContent.toLowerCase();
-      row.style.display = text.includes(term) ? '' : 'none';
+      const decisionMatches = !decisionFilter || row.dataset.decision === decisionFilter;
+      const severityMatches = !severityFilter || row.dataset.severity === severityFilter;
+      row.style.display = text.includes(term) && decisionMatches && severityMatches ? '' : 'none';
     });
   },
 

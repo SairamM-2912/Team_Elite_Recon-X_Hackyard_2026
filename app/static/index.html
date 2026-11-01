@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RECON-X — Database Security</title>
-  <meta name="description" content="View your database status, table counts, and safe query results.">
+  <title>RECON-X — Inference Security Platform</title>
+  <meta name="description" content="Monitor query activity, security events, and database protection status.">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
 </head>
@@ -21,39 +21,52 @@
         <img src="/static/img/logo.png" alt="RECON-X" class="brand-symbol">
         <div class="brand-details">
           <h1>RECON-X</h1>
-          <p>Database Security</p>
+          <p>Inference Security Platform</p>
         </div>
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-category">Menu</div>
-        <a class="nav-link active" data-section="section-overview" onclick="App.scrollToSection('section-overview')">
+        <div class="nav-category">Navigate</div>
+        <a class="nav-link active" data-nav-view="overview" data-section="section-overview" onclick="App.scrollToSection('section-overview')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           Overview
         </a>
-        <a class="nav-link" data-section="section-monitoring" onclick="App.scrollToSection('section-monitoring')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          Query Alerts <span class="nav-badge danger" id="sidebar-threats-badge">—</span>
+        <a class="nav-link" data-nav-view="workspace" data-section="section-workspace" onclick="App.navigateTo('workspace')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          Query Lab
         </a>
-        <a class="nav-link" data-section="section-audit" onclick="App.scrollToSection('section-audit')">
+        <a class="nav-link" data-nav-view="timeline" data-section="section-timeline" onclick="App.navigateTo('timeline')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-5 5"></path></svg>
+          Attack Timeline
+        </a>
+        <a class="nav-link" data-nav-view="events" data-section="section-audit" onclick="App.navigateTo('events')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-          Events and Logs <span class="nav-badge" id="sidebar-events-count">—</span>
+          Security Events <span class="nav-badge danger" id="sidebar-threats-badge">—</span>
         </a>
-        <a class="nav-link" data-section="section-policies" onclick="App.scrollToSection('section-policies')">
+        <a class="nav-link" data-nav-view="sessions" data-section="section-sessions" onclick="App.navigateTo('sessions')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"></circle><path d="M5 21v-2a7 7 0 0 1 14 0v2"></path></svg>
+          Sessions
+        </a>
+        <a class="nav-link" data-nav-view="policies" data-section="section-policies" onclick="App.navigateTo('policies')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          Safety Rules
+          Policy Center
         </a>
-        <a class="nav-link" data-section="section-history" onclick="App.scrollToSection('section-history')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-          History
+        <a class="nav-link" data-nav-view="settings" data-section="section-policies" onclick="App.navigateTo('settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Settings
         </a>
-        <a class="nav-link active" data-section="section-connections" onclick="App.scrollToSection('section-connections')">
+        <div class="nav-category">Data</div>
+        <a class="nav-link" data-nav-view="connections" data-section="section-connections" onclick="App.navigateTo('connections')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           Database &amp; Tables
         </a>
-        <a class="nav-link" data-section="section-workspace" onclick="App.scrollToSection('section-workspace')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-          Query Tool
+        <a class="nav-link" data-nav-view="audit" data-section="section-audit" onclick="App.navigateTo('audit')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          Audit Log <span class="nav-badge" id="sidebar-events-count">—</span>
+        </a>
+        <a class="nav-link" data-nav-view="history" data-section="section-history" onclick="App.navigateTo('history')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Query History
         </a>
 
         <div class="nav-category" style="margin-top:14px;">Help</div>
@@ -80,16 +93,30 @@
           </button>
           <span class="breadcrumb-root">RECON-X</span>
           <span class="breadcrumb-separator">/</span>
-          <span class="breadcrumb-current" id="topbar-breadcrumb">Security Overview</span>
+          <span class="breadcrumb-current" id="topbar-breadcrumb">Overview</span>
         </div>
 
         <div class="topbar-actions">
-          <!-- Connection Status Pill -->
           <div class="connection-indicator-badge" id="topbar-connection-badge">
             <span class="status-dot-pulse"></span>
             <span id="topbar-connection-name">Checking database...</span>
             <span style="font-size:10px; color:var(--text-secondary); margin-left:2px;" id="topbar-connection-latency"></span>
           </div>
+          <div class="system-status-badge" id="topbar-system-status">
+            <span class="status-dot-pulse"></span>
+            <span id="topbar-system-status-label">Checking protection...</span>
+          </div>
+          <a class="topbar-icon-link" href="#section-audit" onclick="App.navigateTo('events'); return false;" aria-label="View security events">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>
+            <span class="topbar-alert-count" id="topbar-alert-count">—</span>
+          </a>
+          <a class="user-profile-menu" href="#section-policies" onclick="App.navigateTo('access'); return false;" aria-label="View your account and access details">
+            <span class="avatar-initials" id="topbar-user-avatar">—</span>
+            <span class="user-meta-info">
+              <span class="user-name-text" id="topbar-user-name">User unavailable</span>
+              <span class="user-role-text" id="topbar-user-role">Access not loaded</span>
+            </span>
+          </a>
           <button class="btn btn-secondary btn-subtle" onclick="App.toggleProtectionState()" id="topbar-proxy-toggle" title="Turn protection on or pause it">
             <span class="status-dot-pulse" style="width:6px; height:6px;"></span>
             <span id="topbar-toggle-label">Checking protection...</span>
@@ -103,9 +130,9 @@
       <section class="dashboard-section" id="section-overview">
         <div class="view-header">
           <div class="view-heading-group">
-            <div class="section-badge">Overview</div>
-            <h2>Database Security</h2>
-            <p>See recent activity, blocked queries, and database status.</p>
+            <div class="section-badge">Security Overview</div>
+            <h2>Protection at a glance</h2>
+            <p>Live query and security data reported by this server.</p>
           </div>
           <div class="view-actions">
             <button class="btn btn-secondary" onclick="App.fetchStatus()">
@@ -114,65 +141,88 @@
             </button>
             <button class="btn btn-primary" onclick="App.scrollToSection('section-workspace')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-              Check a Query
+              Open Query Lab
             </button>
           </div>
         </div>
 
-        <!-- KPI 6-Grid -->
+        <!-- Live decision totals from the server analytics API -->
         <div class="kpi-grid">
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-title">Queries Checked</span>
+              <span class="kpi-title">Total Queries Monitored</span>
               <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
             </div>
             <div class="kpi-value" id="kpi-inspected">—</div>
-            <div class="kpi-footer">Saved checks in this session</div>
+            <div class="kpi-footer">Saved query checks</div>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-title">Alerts</span>
-              <div class="kpi-icon-wrapper" style="color:var(--amber-warning);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+              <span class="kpi-title">Allowed Queries</span>
+              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
             </div>
-            <div class="kpi-value" id="kpi-threats">—</div>
-            <div class="kpi-footer">Alerts in this session</div>
+            <div class="kpi-value" id="kpi-allowed">—</div>
+            <div class="kpi-footer">Allowed by the safety check</div>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-title">Queries Blocked</span>
-              <div class="kpi-icon-wrapper" style="color:var(--danger-muted-red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg></div>
+              <span class="kpi-title">Suspicious Queries</span>
+              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m10.3 3.9-8.5 14A2 2 0 0 0 3.5 21h17a2 2 0 0 0 1.7-3.1l-8.5-14a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div>
+            </div>
+            <div class="kpi-value" id="kpi-suspicious">—</div>
+            <div class="kpi-footer">Warnings and restricted queries</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Blocked Queries</span>
+              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"></circle><path d="m5.6 5.6 12.8 12.8"></path></svg></div>
             </div>
             <div class="kpi-value" id="kpi-blocked">—</div>
-            <div class="kpi-footer">Blocked queries in this session</div>
+            <div class="kpi-footer">Blocked before data was returned</div>
           </div>
+        </div>
 
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-title">High-Risk Checks</span>
-              <div class="kpi-icon-wrapper" style="color:var(--amber-warning);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
+        <div class="overview-detail-grid">
+          <div class="card risk-chart-card">
+            <div class="card-heading">
+              <div>
+                <h3>Risk Activity</h3>
+                <p>Risk scores from recent events reported by the server.</p>
+              </div>
+              <span class="live-data-label"><span class="status-dot-pulse"></span> Live event data</span>
             </div>
-            <div class="kpi-value" id="kpi-highrisk">—</div>
-            <div class="kpi-footer">Saved checks with a score of 60 or more</div>
+            <div id="risk-activity-chart" class="risk-activity-chart" role="img" aria-label="Risk score chart from recent security events">
+              <div class="pg-query-state" role="status">Loading risk activity...</div>
+            </div>
           </div>
-
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-title">Average Safety Score</span>
-              <div class="kpi-icon-wrapper"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg></div>
+          <div class="overview-side-stack">
+            <div class="card system-posture-card">
+              <div class="card-heading">
+                <div>
+                  <h3>System Protection</h3>
+                  <p>Current server status</p>
+                </div>
+                <span class="status-indicator" id="overview-protection-state">Checking</span>
+              </div>
+              <div class="posture-row"><span>Database</span><strong id="kpi-dbstatus">Not connected</strong></div>
+              <div class="posture-row"><span>Database type</span><strong id="kpi-dbengine">PostgreSQL</strong></div>
+              <div class="posture-row"><span>Security events</span><strong id="kpi-threats">—</strong></div>
+              <div class="posture-row"><span>High-risk checks</span><strong id="kpi-highrisk">—</strong></div>
+              <div class="posture-row"><span>Average risk score</span><strong id="kpi-avgscore">—</strong></div>
             </div>
-            <div class="kpi-value" id="kpi-avgscore">—</div>
-            <div class="kpi-footer">Average score for saved checks</div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-title">Database Status</span>
-              <div class="kpi-icon-wrapper" style="color:var(--sage-dark);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg></div>
+            <div class="card highest-risk-card">
+              <div class="card-heading">
+                <div>
+                  <h3>Highest-Risk Session</h3>
+                  <p>Session risk is not reported by the server.</p>
+                </div>
+                <span class="risk-pill">Not available</span>
+              </div>
+              <p class="muted-note">The server does not provide a session list or session risk scores.</p>
             </div>
-            <div class="kpi-value" style="font-size:18px;" id="kpi-dbstatus">Not connected</div>
-            <div class="kpi-footer" id="kpi-dbengine">PostgreSQL</div>
           </div>
         </div>
 
@@ -248,6 +298,71 @@
             </div>
           </div>
         </div>
+      </section>
+
+      <section class="dashboard-section" id="section-timeline">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <div class="section-badge">Investigation</div>
+            <h2>Attack Timeline</h2>
+            <p>Review the order of query events reported by the server.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-secondary" onclick="App.loadEvents()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              Refresh Events
+            </button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="timeline-legend">
+            <span><i class="legend-dot allow"></i>Allowed</span>
+            <span><i class="legend-dot warn"></i>Warning</span>
+            <span><i class="legend-dot block"></i>Blocked</span>
+            <span class="muted-note">Latest events from the security events API</span>
+          </div>
+          <div id="attack-timeline" class="attack-timeline" role="list" aria-live="polite">
+            <div class="pg-query-state" role="status">Loading security events...</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-section" id="section-sessions">
+        <div class="view-header">
+          <div class="view-heading-group">
+            <div class="section-badge">Session Activity</div>
+            <h2>Query Session</h2>
+            <p>Review the current query session and its saved activity.</p>
+          </div>
+          <div class="view-actions">
+            <button class="btn btn-secondary" onclick="App.loadHistory()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              Refresh Session
+            </button>
+            <button class="btn btn-primary" onclick="App.navigateTo('workspace')">
+              Open Query Lab
+            </button>
+          </div>
+        </div>
+        <div class="session-summary-grid">
+          <div class="card session-summary-card">
+            <span class="summary-label">Session ID</span>
+            <strong id="session-id-value">Loading...</strong>
+          </div>
+          <div class="card session-summary-card">
+            <span class="summary-label">Queries in session</span>
+            <strong id="session-query-count">—</strong>
+          </div>
+          <div class="card session-summary-card">
+            <span class="summary-label">Latest activity</span>
+            <strong id="session-last-activity">—</strong>
+          </div>
+          <div class="card session-summary-card">
+            <span class="summary-label">Session risk</span>
+            <strong id="session-risk-value">Not reported</strong>
+          </div>
+        </div>
+        <p class="muted-note session-data-note">The server provides query history for this session only. It does not provide a list of other sessions or session risk scores.</p>
       </section>
 
       <!-- ======================================================================
@@ -433,8 +548,22 @@
           <!-- Tab 1: Security Events Log -->
           <div class="tab-pane active" id="tab-events-full">
             <div class="card">
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+              <div class="event-filter-bar">
                 <input type="text" class="select-custom" id="events-filter-input" placeholder="Search queries, events, or IDs..." style="width:280px;" oninput="App.filterEvents(this.value)">
+                <select class="select-custom" id="events-decision-filter" aria-label="Filter by decision" onchange="App.filterEvents()">
+                  <option value="">All decisions</option>
+                  <option value="ALLOW">Allowed</option>
+                  <option value="WARN">Warning</option>
+                  <option value="RESTRICT">Restricted</option>
+                  <option value="BLOCK">Blocked</option>
+                </select>
+                <select class="select-custom" id="events-severity-filter" aria-label="Filter by severity" onchange="App.filterEvents()">
+                  <option value="">All levels</option>
+                  <option value="CRITICAL">Critical</option>
+                  <option value="HIGH">High</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="LOW">Low</option>
+                </select>
                 <button class="btn btn-secondary btn-subtle" onclick="App.clearEvents()">Clear Events</button>
               </div>
 
@@ -648,8 +777,8 @@
       <section class="dashboard-section" id="section-workspace">
         <div class="view-header">
           <div class="view-heading-group">
-            <div class="section-badge">Query Tool</div>
-            <h2>Check and Run a Query</h2>
+            <div class="section-badge">Query Lab</div>
+            <h2>Analyze a PostgreSQL query</h2>
             <p>Only approved count queries can run. They cannot change data.</p>
           </div>
         </div>
@@ -657,10 +786,13 @@
         <div class="inspector-layout">
           <div class="sql-editor-container">
             <div class="card">
-              <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">Safe PostgreSQL Query</h3>
+              <h3 style="font-size:14px; font-weight:700; color:var(--forest-deep); margin-bottom:4px;">SQL workspace</h3>
               <p style="font-size:11.5px; color:var(--text-secondary); margin-bottom:8px;">Only approved count queries can run. This account cannot see table records.</p>
-              <label for="pg-sql-input" class="control-label">Count query</label>
-              <textarea class="code-editor-box" id="pg-sql-input" style="min-height:90px;" placeholder="Enter an approved count query"></textarea>
+              <label for="pg-sql-input" class="control-label">SQL query</label>
+              <div class="sql-editor-shell">
+                <pre id="sql-editor-highlight" class="sql-editor-highlight" aria-hidden="true"></pre>
+                <textarea class="code-editor-box" id="pg-sql-input" aria-label="SQL query" spellcheck="false" style="min-height:90px;" placeholder="Enter an approved count query"></textarea>
+              </div>
               <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
                 <button class="btn btn-secondary" onclick="App.inspectPgQueryOnly()" id="btn-pg-inspect">Check Only</button>
                 <button class="btn btn-primary" onclick="App.runPgQuery()" id="btn-pg-query" type="button">Run Query</button>
@@ -697,6 +829,17 @@
               </div>
               <div class="risk-meter-bar-track">
                 <div class="risk-meter-fill low" id="analysis-meter-fill" style="width:0%;"></div>
+              </div>
+            </div>
+
+            <div class="query-context-grid">
+              <div>
+                <span>Population size</span>
+                <strong id="query-population-size">Not reported</strong>
+              </div>
+              <div>
+                <span>Related query check</span>
+                <strong id="query-related-info">Not reported</strong>
               </div>
             </div>
 
