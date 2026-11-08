@@ -16,7 +16,13 @@ def _environment_flag(name: str, default: bool = False) -> bool:
 
 
 IS_RENDER = _environment_flag("RENDER")
-AUTH_ENABLED = IS_RENDER or _environment_flag("RECONX_AUTH_ENABLED")
+
+
+def _auth_enabled() -> bool:
+    return _environment_flag("RECONX_AUTH_ENABLED", default=IS_RENDER)
+
+
+AUTH_ENABLED = _auth_enabled()
 AUTH_USERNAME = os.environ.get("RECONX_AUTH_USERNAME", "")
 AUTH_PASSWORD = os.environ.get("RECONX_AUTH_PASSWORD", "")
 

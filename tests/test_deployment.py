@@ -77,6 +77,26 @@ def test_render_auth_requires_configured_credentials():
         config.validate_auth_configuration(True, "operator", "short")
 
 
+@pytest.mark.parametrize(
+    ("configured_value", "expected"),
+    [("true", True), ("false", False)],
+)
+def test_render_auth_setting_respects_explicit_boolean(
+    monkeypatch, configured_value, expected
+):
+    monkeypatch.setattr(config, "IS_RENDER", True)
+    monkeypatch.setenv("RECONX_AUTH_ENABLED", configured_value)
+
+    assert config._auth_enabled() is expected
+
+
+def test_render_auth_defaults_to_enabled_when_setting_is_unset(monkeypatch):
+    monkeypatch.setattr(config, "IS_RENDER", True)
+    monkeypatch.delenv("RECONX_AUTH_ENABLED", raising=False)
+
+    assert config._auth_enabled() is True
+
+
 def test_cors_origins_are_limited_and_include_render_service_domain(monkeypatch):
     monkeypatch.setenv(
         "RECONX_CORS_ORIGINS", "https://dashboard.example.com,http://localhost:3000"
@@ -127,6 +147,31 @@ def test_dashboard_and_static_files_are_protected_when_auth_is_enabled(monkeypat
         main.require_production_auth(request("/health"), next_response)
     )
     assert health.status_code == 200
+
+
+def test_dashboard_and_static_files_are_public_when_auth_is_disabled(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main, "AUTH_ENABLED", False)
+
+    async def next_response(_request):
+        from starlette.responses import Response
+        return Response(status_code=200)
+
+    def request(path):
+        return SimpleNamespace(
+            url=SimpleNamespace(path=path),
+            method="GET",
+            headers={},
+        )
+
+    root = asyncio.run(main.require_production_auth(request("/"), next_response))
+    static = asyncio.run(
+        main.require_production_auth(request("/static/index.html"), next_response)
+    )
+
+    assert root.status_code == 200
+    assert static.status_code == 200
 
 
 def test_supabase_browser_config_contains_public_values_only(monkeypatch):
