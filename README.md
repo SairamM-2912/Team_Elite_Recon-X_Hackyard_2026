@@ -314,11 +314,12 @@ A successful unit-test run does not prove that the production database connectio
 
 ## ☁️ Render Deployment
 
-The root `render.yaml` defines the FastAPI web service, health check, and a
-persistent disk mounted at `/var/data`. The disk requires a paid Render web
-service and supports one service instance; SQLite files are not shared across
-multiple instances. Do not remove the disk or change its mount path after
-production data is stored.
+The root `render.yaml` defines a Free FastAPI web service and its health check.
+SQLite files are stored under `/tmp/recon-x-data` on Render's ephemeral
+filesystem. They can be lost when the service restarts or redeploys, so this
+configuration is for demos and must not be used when SQLite data needs durable
+storage. Keep one service instance because SQLite files are not shared across
+multiple instances.
 
 ### Build and start commands
 
@@ -341,8 +342,9 @@ The FastAPI application is `app.main:app`. The root URL serves the dashboard,
    The password must be at least 16 characters. These protect the dashboard,
    APIs, and static files with HTTP Basic authentication over Render HTTPS;
    `/health` remains public for the platform health check.
-4. Confirm Render creates the `/var/data` persistent disk. Keep one service
-   instance because the SQLite files and WAL are on that disk.
+4. The service uses SQLite files under `/tmp/recon-x-data` on its ephemeral
+   filesystem. They may be lost on restart or redeploy; keep one service
+   instance because SQLite files are not shared across multiple instances.
 5. Add optional PostgreSQL variables only if enabling protected PostgreSQL
    features. Set `PGSSLMODE=require`, use the dedicated `reconx_demo_reader`
    role, and provide either `DATABASE_URL` or `PGHOST`, `PGPORT`, `PGDATABASE`,
@@ -362,7 +364,7 @@ The FastAPI application is `app.main:app`. The root URL serves the dashboard,
 
 | Variable | Requirement | Purpose |
 |---|---|---|
-| `RECONX_DATA_DIR=/var/data` | Required by Blueprint | SQLite persistent disk location |
+| `RECONX_DATA_DIR=/tmp/recon-x-data` | Set by Blueprint | SQLite location on ephemeral filesystem |
 | `RECONX_AUTH_USERNAME` | Required | HTTP Basic deployment username |
 | `RECONX_AUTH_PASSWORD` | Required, 16+ characters | HTTP Basic deployment password |
 | `RECONX_SEED_DEMO_DATA=false` | Recommended | Prevent automatic sample-data seeding |
@@ -372,12 +374,13 @@ The FastAPI application is `app.main:app`. The root URL serves the dashboard,
 | `RECONX_CORS_ORIGINS` | Optional | Comma-separated allowed HTTP(S) origins; Render's own URL is added automatically |
 | `PORT` | Render-managed | Assigned listening port; do not set manually |
 
-Render's disk-backed SQLite deployment is suitable for a single-instance demo
-or modest deployment, not horizontal scaling or high write volume. If future
-requirements need multiple instances, coordinated writes, or managed backups,
-evaluate an application-storage database migration separately. The protected
-PostgreSQL database serves a different purpose and is not a drop-in replacement
-for the four internal SQLite demo datasets.
+Render's ephemeral SQLite deployment is suitable only when losing local data
+on restart or redeploy is acceptable. It is not suitable for horizontal
+scaling, high write volume, or durable storage. If future requirements need
+multiple instances, coordinated writes, or managed backups, evaluate an
+application-storage database migration separately. The optional protected
+PostgreSQL integration is not configured by this Blueprint and is not a
+drop-in replacement for the four internal SQLite demo datasets.
 
 ### Authentication and production limitations
 
@@ -387,8 +390,8 @@ the public service but is a shared credential, not per-user authorization.
 Before inviting multiple users or processing real sensitive data, integrate a
 real identity provider and enforce user/role permissions on every API route.
 Audit logs, query/session history, security events, differential-privacy
-budgets, and policy changes are currently held in process memory and reset on
-restart; the Render disk only persists the four sector SQLite datasets.
+budgets, policy changes, and the four sector SQLite datasets are not durable
+and may be lost on restart or redeploy.
 Implement durable storage for those records before relying on them for audit
 retention or compliance.
 The checked-in shop seed data also contains demo account hashes; do not load it
