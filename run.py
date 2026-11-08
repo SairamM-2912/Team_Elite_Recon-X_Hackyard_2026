@@ -1,5 +1,9 @@
 """RECON-X — Database Security Proxy Startup Runner."""
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from app.config import SERVER_HOST, SERVER_PORT
 
 

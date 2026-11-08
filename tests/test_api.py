@@ -32,7 +32,7 @@ def test_api_connections_list_never_leaks_secrets():
     data = list_connections(proxy=recon_proxy)
     for conn in data["connections"]:
         assert "server_credentials" not in conn
-        assert conn["credentials_configured"] is True
+        assert conn["credentials_configured"] is False
 
 
 def test_api_audit_verify_endpoint():

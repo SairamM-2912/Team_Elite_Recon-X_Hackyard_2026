@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css/style.css">
   <!-- Official Supabase JavaScript Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/static/js/supabase-config.js"></script>
+  <script src="/api/public-config.js"></script>
   <style>
     .shop-panel {
       max-width: 820px;
@@ -191,7 +191,7 @@
     <p>Paste your <strong>Project URL</strong> and <strong>Publishable Anon Key</strong> from your Supabase Dashboard (Settings &gt; API). Stored locally in your browser.</p>
     <div class="config-inputs">
       <input id="cfg-url" type="text" placeholder="https://xyzcompany.supabase.co">
-      <input id="cfg-key" type="password" placeholder="Publishable anon key (eyJhbGci...)">
+      <input id="cfg-key" type="password" placeholder="Supabase publishable key">
       <button class="btn-xs btn-xs-primary" onclick="Shop.saveConfig()">Save &amp; Connect</button>
     </div>
   </div>

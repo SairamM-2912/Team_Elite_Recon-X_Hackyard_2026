@@ -77,15 +77,7 @@ copy .env.example .env
 notepad .env
 ```
 
-Fill in your real PostgreSQL password:
-
-```
-DATABASE_URL=postgresql://postgres:YOUR_REAL_PASSWORD@localhost:5432/fictional_shop_db
-SESSION_SECRET=any_long_random_string_here
-PORT=3001
-FRONTEND_ORIGIN=http://localhost:8000
-NODE_ENV=development
-```
+Configure `DATABASE_URL` and `SESSION_SECRET` using the placeholders in `shop/.env.example`. The database URL must contain no committed credentials.
 
 ---
 
@@ -145,17 +137,9 @@ node server.js
 
 ---
 
-## Demo login credentials
+## Seeded demo accounts
 
-> ⚠️ **Development only.** These accounts are seeded fictional data. Do not use in production.
-
-| Email | Password | Role |
-|---|---|---|
-| `admin@example.com` | `DemoAdmin2024!` | admin |
-| `alice@example.com` | `DemoUser2024!` | customer |
-| `bob@example.com` | `DemoUser2024!` | customer |
-
-> Note: The seed.sql uses pre-computed bcrypt hashes. The actual password hashes in the DB correspond to `DemoAdmin2024!` for the admin and `DemoUser2024!` for all customer accounts. **These are fictional accounts — never use in production.**
+The optional `seed.sql` contains pre-created demo account hashes intended only for an isolated local database. Do not load that seed into production. Create production accounts through registration and assign administrator privileges only through a trusted process.
 
 ---
 

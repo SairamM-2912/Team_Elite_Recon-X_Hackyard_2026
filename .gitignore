@@ -1,8 +1,12 @@
 # Environment / secrets — NEVER commit these
 .env
 *.env
+.env.*
 !.env.example
 !.env.supabase.example
+shop/.env
+shop/.env.*
+!shop/.env.example
 
 # Node
 node_modules/
@@ -21,6 +25,8 @@ build/
 
 # SQLite databases (seeded at runtime)
 *.db
+*.db-shm
+*.db-wal
 
 # Testing / coverage
 .pytest_cache/

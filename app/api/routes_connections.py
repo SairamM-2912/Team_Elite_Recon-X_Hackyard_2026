@@ -23,7 +23,7 @@ class AddConnectionRequest(BaseModel):
     name: str = Field(..., json_schema_extra={"example": "External PostgreSQL"})
     engine: str = Field(..., json_schema_extra={"example": "PostgreSQL (Simulation)"})
     sector: str = Field(..., json_schema_extra={"example": "Financial"})
-    server_secret: str = Field(..., json_schema_extra={"example": "VaultPassword123!"})
+    server_secret: str = Field(..., json_schema_extra={"example": "replace-with-secret"})
     db_path: Optional[str] = None
 
 

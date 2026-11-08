@@ -1,5 +1,9 @@
 """FastAPI Application Entry Point for RECON-X Security Proxy."""
+import base64
+import hmac
+import json
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env (if present) before anything else — never overrides real env vars
@@ -7,8 +11,16 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from app.config import (
+    AUTH_ENABLED,
+    AUTH_PASSWORD,
+    AUTH_USERNAME,
+    SUPABASE_PUBLISHABLE_KEY,
+    SUPABASE_URL,
+    get_cors_origins,
+)
 
 from app.core.proxy import ReconXProxy
 from app.db.seed_data import init_all_databases
@@ -33,16 +45,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for local client tools
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Authorization", "Content-Type"],
 )
 
-# Initialize backend database seeds
+# Create missing SQLite tables without replacing existing data.
 init_all_databases()
 
 # Create single orchestrator instance
@@ -77,12 +88,48 @@ app.include_router(routes_analytics.router)
 app.include_router(routes_pg.router)
 
 # Mount Static directory
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-try:
-    os.makedirs(static_dir, exist_ok=True)
-except OSError:
-    pass
+static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.middleware("http")
+async def require_production_auth(request, call_next):
+    if (
+        not AUTH_ENABLED
+        or request.url.path == "/health"
+        or request.method == "OPTIONS"
+    ):
+        return await call_next(request)
+
+    scheme, separator, encoded_credentials = request.headers.get(
+        "authorization", ""
+    ).partition(" ")
+    authenticated = False
+    if separator and scheme.lower() == "basic" and len(encoded_credentials) <= 4096:
+        try:
+            decoded = base64.b64decode(encoded_credentials, validate=True).decode(
+                "utf-8"
+            )
+            username, separator, password = decoded.partition(":")
+            authenticated = (
+                bool(separator)
+                and hmac.compare_digest(username.encode(), AUTH_USERNAME.encode())
+                and hmac.compare_digest(password.encode(), AUTH_PASSWORD.encode())
+            )
+        except (ValueError, UnicodeDecodeError):
+            authenticated = False
+
+    if not authenticated:
+        return Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": 'Basic realm="RECON-X"',
+                "Cache-Control": "no-store",
+            },
+        )
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health")
@@ -95,35 +142,38 @@ def healthcheck():
     }
 
 
+@app.get("/api/public-config.js")
+def public_frontend_config():
+    """Expose only Supabase's browser-safe project URL and publishable key."""
+    config = {
+        "url": SUPABASE_URL,
+        "publishableKey": SUPABASE_PUBLISHABLE_KEY,
+    }
+    return Response(
+        content=f"window.SUPABASE_CONFIG = {json.dumps(config)};",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/shop")
 def serve_shop():
-    shop_file = os.path.join(static_dir, "shop.html")
+    shop_file = static_dir / "shop.html"
     if os.path.exists(shop_file):
         return FileResponse(shop_file)
     return {"message": "Shop page not found."}
 
 
 @app.get("/")
-def serve_intro():
-    intro_file = os.path.join(static_dir, "intro.html")
-    if os.path.exists(intro_file):
-        return FileResponse(intro_file)
-    index_file = os.path.join(static_dir, "index.html")
-    return FileResponse(index_file)
+def serve_dashboard():
+    return FileResponse(static_dir / "index.html")
 
 
 @app.get("/dashboard")
-def serve_dashboard():
-    index_file = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    return {"message": "RECON-X Proxy Dashboard not found."}
+def serve_dashboard_alias():
+    return FileResponse(static_dir / "index.html")
 
 
 @app.get("/intro")
 def serve_intro_alias():
-    intro_file = os.path.join(static_dir, "intro.html")
-    if os.path.exists(intro_file):
-        return FileResponse(intro_file)
-    return {"message": "RECON-X Intro page not found."}
-
+    return FileResponse(static_dir / "intro.html")

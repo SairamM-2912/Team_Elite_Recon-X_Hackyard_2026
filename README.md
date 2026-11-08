@@ -80,8 +80,8 @@ flowchart TD
 | 🐘 Protected Database | PostgreSQL |
 | 🔌 Database Driver | Psycopg 3 |
 | 📚 API Documentation | FastAPI / OpenAPI |
-| ☁️ Application Hosting | Vercel — planned |
-| 🌐 Hosted Database | Supabase PostgreSQL — migration in progress |
+| ☁️ Application Hosting | Render |
+| 🌐 Hosted Database | PostgreSQL / Supabase |
 
 ## 📂 Project Structure
 
@@ -109,7 +109,8 @@ RECON-X/
 │   ├── db/
 │   │   ├── connection.py
 │   │   ├── pg_service.py
-│   │   └── seed_data.py
+│   │   ├── seed_data.py
+│   │   └── sqlite_utils.py
 │   └── static/
 │       ├── index.html
 │       ├── css/
@@ -125,6 +126,7 @@ RECON-X/
 ├── tests/
 ├── .env.example
 ├── .gitignore
+├── render.yaml
 ├── README.md
 ├── requirements.txt
 └── run.py
@@ -171,31 +173,36 @@ python -m pip install -r requirements.txt
 
 Create a local `.env` file using `.env.example` as a reference.
 
-Example for the local PostgreSQL setup:
+Copy the placeholder template:
 
-```dotenv
-PGHOST=127.0.0.1
-PGPORT=5432
-PGDATABASE=reconx_demo
-PGUSER=reconx_demo_reader
-PGPASSWORD=your_local_database_password
+```powershell
+Copy-Item .env.example .env
 ```
 
-Replace the example password with your actual local credential.
+Set PostgreSQL variables only if using the protected PostgreSQL endpoints. The
+application role must be `reconx_demo_reader`; never use a database
+administrator account. `DATABASE_URL` can be used instead of the individual
+`PG*` variables. Supabase connections use TLS.
 
 > ⚠️ Never commit `.env` or database passwords to GitHub. Keep `.env` excluded through `.gitignore`.
 
-### 5️⃣ Start RECON-X
+### 5️⃣ Initialize and start RECON-X
 
 ```powershell
+$env:RECONX_DATA_DIR = ".\app\db"
+$env:RECONX_SEED_DEMO_DATA = "true"
 python run.py
 ```
 
-If using the existing parent-level virtual environment:
+Demo seeding is opt-in and happens only when the target database tables are
+empty. Set `RECONX_SEED_DEMO_DATA` to `false` after the initial local demo
+setup; application startup creates missing tables without dropping data.
+
+To run without demo records:
 
 ```powershell
-$env:PATH = "C:\Program Files\PostgreSQL\18\bin;$env:PATH"
-& "..\.venv\Scripts\python.exe" run.py
+$env:RECONX_SEED_DEMO_DATA = "false"
+python run.py
 ```
 
 🌐 Open the dashboard:
@@ -305,29 +312,98 @@ python -m pytest -q
 
 A successful unit-test run does not prove that the production database connection or deployment is working. Verify those separately.
 
-## ☁️ Deployment
+## ☁️ Render Deployment
 
-### 🎯 Planned Deployment Architecture
+The root `render.yaml` defines the FastAPI web service, health check, and a
+persistent disk mounted at `/var/data`. The disk requires a paid Render web
+service and supports one service instance; SQLite files are not shared across
+multiple instances. Do not remove the disk or change its mount path after
+production data is stored.
 
-| Component | Platform |
-|---|---|
-| 🌐 Application | Vercel |
-| 🐘 Hosted PostgreSQL | Supabase |
-| 🔐 Secrets | Private hosting environment variables |
+### Build and start commands
 
-### 🚀 Deployment Checklist
+```text
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
 
-- [ ] Export the existing local PostgreSQL demo database.
-- [ ] Import the schema and records into Supabase.
-- [ ] Verify all four demo tables and their records.
-- [ ] Recreate restricted database roles and grants.
-- [ ] Configure secure PostgreSQL connectivity and SSL.
-- [ ] Configure backend environment variables in Vercel.
-- [ ] Verify FastAPI runtime and static-file compatibility.
-- [ ] Test approved and blocked queries against the hosted database.
-- [ ] Confirm that credentials are absent from frontend assets and Git history.
+The FastAPI application is `app.main:app`. The root URL serves the dashboard,
+`/intro` retains the intro page, `/shop` serves the Supabase storefront, and
+`/health` is the Render health check. FastAPI serves `/static/*` assets.
 
-> 📌 **Deployment status:** The Supabase migration and Vercel deployment are planned and must be verified before being described as production-ready.
+### Deploy steps
+
+1. Push the reviewed branch to GitHub; do not commit `.env` or SQLite `.db`,
+   `-wal`, or `-shm` files.
+2. In Render, choose **New → Blueprint** and select this repository and branch.
+3. Before creating the service, enter unique values for the required
+   `RECONX_AUTH_USERNAME` and `RECONX_AUTH_PASSWORD` variables when prompted.
+   The password must be at least 16 characters. These protect the dashboard,
+   APIs, and static files with HTTP Basic authentication over Render HTTPS;
+   `/health` remains public for the platform health check.
+4. Confirm Render creates the `/var/data` persistent disk. Keep one service
+   instance because the SQLite files and WAL are on that disk.
+5. Add optional PostgreSQL variables only if enabling protected PostgreSQL
+   features. Set `PGSSLMODE=require`, use the dedicated `reconx_demo_reader`
+   role, and provide either `DATABASE_URL` or `PGHOST`, `PGPORT`, `PGDATABASE`,
+   `PGUSER`, and `PGPASSWORD`. Do not use a superuser or Supabase service-role
+   key.
+6. For the Supabase storefront, set `SUPABASE_URL` and
+   `SUPABASE_PUBLISHABLE_KEY` to the project URL and public publishable/anon
+   key. Never set a service-role key. Ensure Supabase Row Level Security and
+   policies are enabled.
+7. Leave `RECONX_SEED_DEMO_DATA=false` unless explicitly creating a new demo
+   volume. Existing nonempty SQLite tables are never seeded over.
+8. Deploy manually, then verify the dashboard, `/health`, static assets, and
+   `/api/pg/status`. Use `/api/pg/test` only when intentionally testing the
+   configured PostgreSQL connection.
+
+### Render environment variables
+
+| Variable | Requirement | Purpose |
+|---|---|---|
+| `RECONX_DATA_DIR=/var/data` | Required by Blueprint | SQLite persistent disk location |
+| `RECONX_AUTH_USERNAME` | Required | HTTP Basic deployment username |
+| `RECONX_AUTH_PASSWORD` | Required, 16+ characters | HTTP Basic deployment password |
+| `RECONX_SEED_DEMO_DATA=false` | Recommended | Prevent automatic sample-data seeding |
+| `PGSSLMODE=require` | Required when PG is configured | TLS for Supabase/remote PostgreSQL |
+| `DATABASE_URL` or `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | Optional | Protected PostgreSQL connection; use the restricted reader |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Optional | Browser-safe Supabase storefront configuration |
+| `RECONX_CORS_ORIGINS` | Optional | Comma-separated allowed HTTP(S) origins; Render's own URL is added automatically |
+| `PORT` | Render-managed | Assigned listening port; do not set manually |
+
+Render's disk-backed SQLite deployment is suitable for a single-instance demo
+or modest deployment, not horizontal scaling or high write volume. If future
+requirements need multiple instances, coordinated writes, or managed backups,
+evaluate an application-storage database migration separately. The protected
+PostgreSQL database serves a different purpose and is not a drop-in replacement
+for the four internal SQLite demo datasets.
+
+### Authentication and production limitations
+
+The existing in-app user/role switcher is a demonstration RBAC feature, not a
+production identity provider. The deployment-level Basic-auth gate protects
+the public service but is a shared credential, not per-user authorization.
+Before inviting multiple users or processing real sensitive data, integrate a
+real identity provider and enforce user/role permissions on every API route.
+Audit logs, query/session history, security events, differential-privacy
+budgets, and policy changes are currently held in process memory and reset on
+restart; the Render disk only persists the four sector SQLite datasets.
+Implement durable storage for those records before relying on them for audit
+retention or compliance.
+The checked-in shop seed data also contains demo account hashes; do not load it
+into production. This repository change does not deploy the separate optional
+Node.js shop API.
+
+### Previously committed credential-like values
+
+The reachable Git history contains hardcoded demo database/authentication
+values from earlier commits and the former storefront contained a Supabase
+publishable key. The demo values have been removed from the current source
+where practical; Git history was not rewritten. Rotate any value that was
+real, reused, or granted access. The publishable/anon key is intended for
+browser use, but its Supabase project must enforce Row Level Security. No
+private Supabase service-role key was found in the scanned reachable history.
 
 ## 🚀 Future Enhancements
 

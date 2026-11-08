@@ -24,6 +24,7 @@ import time
 
 try:
     import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
 except ImportError:
     class _UnavailablePsycopg:
         class Error(Exception):
@@ -38,6 +39,12 @@ except ImportError:
             raise PgServiceError("PostgreSQL driver is unavailable.")
 
     psycopg = _UnavailablePsycopg()
+
+    def conninfo_to_dict(_conninfo):
+        raise PgServiceError("PostgreSQL driver is unavailable.")
+
+    def make_conninfo(*_args, **_kwargs):
+        raise PgServiceError("PostgreSQL driver is unavailable.")
 
 from sqlglot import exp, parse
 from sqlglot.errors import ParseError
@@ -147,15 +154,40 @@ def _open_connection() -> psycopg.Connection:
         user = os.environ.get("PGUSER", "reconx_demo_reader")
         if user != "reconx_demo_reader":
             raise PgServiceError("A restricted PostgreSQL application role is required.")
-        conn = psycopg.connect(
-            host=os.environ.get("PGHOST", "127.0.0.1"),
-            port=os.environ.get("PGPORT", "5432"),
-            dbname=os.environ.get("PGDATABASE", "reconx_demo"),
-            user=user,
-            password=os.environ.get("PGPASSWORD", ""),
-            connect_timeout=CONNECT_TIMEOUT_S,
-            application_name="reconx_proxy",
+        database_url = os.environ.get("DATABASE_URL")
+        sslmode = os.environ.get(
+            "PGSSLMODE",
+            "require" if os.environ.get("RENDER") or database_url else "prefer",
         )
+        if os.environ.get("RENDER") and sslmode not in {
+            "require", "verify-ca", "verify-full"
+        }:
+            raise PgServiceError("TLS is required for PostgreSQL on Render.")
+        if database_url:
+            url_options = conninfo_to_dict(database_url)
+            if url_options.get("user", user) != user:
+                raise PgServiceError(
+                    "A restricted PostgreSQL application role is required."
+                )
+            conninfo = make_conninfo(
+                database_url,
+                user=user,
+                sslmode=sslmode,
+                connect_timeout=CONNECT_TIMEOUT_S,
+                application_name="reconx_proxy",
+            )
+            conn = psycopg.connect(conninfo)
+        else:
+            conn = psycopg.connect(
+                host=os.environ.get("PGHOST", "127.0.0.1"),
+                port=os.environ.get("PGPORT", "5432"),
+                dbname=os.environ.get("PGDATABASE", "reconx_demo"),
+                user=user,
+                password=os.environ.get("PGPASSWORD", ""),
+                sslmode=sslmode,
+                connect_timeout=CONNECT_TIMEOUT_S,
+                application_name="reconx_proxy",
+            )
         conn.autocommit = False
         with conn.cursor() as cur:
             cur.execute("SET TRANSACTION READ ONLY")
@@ -235,9 +267,10 @@ class PgService:
             "error": str | None
         }
         """
-        db = os.environ.get("PGDATABASE", "reconx_demo")
-        user = os.environ.get("PGUSER", "reconx_demo_reader")
-        host = os.environ.get("PGHOST", "127.0.0.1")
+        summary = self.config_summary()
+        db = summary["db"]
+        user = summary["user"]
+        host = summary["host"]
         t0 = time.monotonic()
         conn = None
         try:
@@ -397,6 +430,25 @@ class PgService:
 
     def config_summary(self) -> dict:
         """Return non-secret connection configuration for the UI."""
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            try:
+                options = conninfo_to_dict(database_url)
+            except (PgServiceError, psycopg.Error, TypeError, ValueError):
+                return {
+                    "host": None,
+                    "port": None,
+                    "db": None,
+                    "user": None,
+                    "configured": False,
+                }
+            return {
+                "host": options.get("host"),
+                "port": options.get("port"),
+                "db": options.get("dbname"),
+                "user": options.get("user", os.environ.get("PGUSER", "reconx_demo_reader")),
+                "configured": bool(database_url),
+            }
         return {
             "host": os.environ.get("PGHOST", "127.0.0.1"),
             "port": os.environ.get("PGPORT", "5432"),

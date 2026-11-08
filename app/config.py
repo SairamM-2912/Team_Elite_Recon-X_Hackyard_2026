@@ -1,9 +1,76 @@
 """Application Configuration and Security Policy Defaults."""
+import os
 from typing import Dict, Any, List
+from urllib.parse import urlsplit
 
 # Server Configuration
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 8000
+SERVER_HOST = os.environ.get("HOST", "127.0.0.1")
+SERVER_PORT = int(os.environ.get("PORT", "8000"))
+
+
+def _environment_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+IS_RENDER = _environment_flag("RENDER")
+AUTH_ENABLED = IS_RENDER or _environment_flag("RECONX_AUTH_ENABLED")
+AUTH_USERNAME = os.environ.get("RECONX_AUTH_USERNAME", "")
+AUTH_PASSWORD = os.environ.get("RECONX_AUTH_PASSWORD", "")
+
+
+def validate_auth_configuration(
+    auth_enabled: bool, username: str, password: str
+) -> None:
+    if auth_enabled and (not username or len(password) < 16):
+        raise RuntimeError(
+            "Set RECONX_AUTH_USERNAME and a RECONX_AUTH_PASSWORD of at least 16 characters."
+        )
+
+
+validate_auth_configuration(AUTH_ENABLED, AUTH_USERNAME, AUTH_PASSWORD)
+
+
+def get_cors_origins() -> List[str]:
+    configured = os.environ.get("RECONX_CORS_ORIGINS")
+    if configured is None:
+        origins = [] if IS_RENDER else [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+    else:
+        origins = [
+            origin.strip().rstrip("/")
+            for origin in configured.split(",")
+            if origin.strip()
+        ]
+
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if render_url:
+        origins.append(render_url.rstrip("/"))
+
+    for origin in origins:
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+            or origin == "*"
+        ):
+            raise RuntimeError(
+                "RECONX_CORS_ORIGINS must contain comma-separated HTTP(S) origins only."
+            )
+    return list(dict.fromkeys(origins))
+
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", "")
 
 # Color Palette Metadata (Mandatory Light Mode)
 PALETTE = {

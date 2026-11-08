@@ -31,23 +31,53 @@ const rateLimit    = require('express-rate-limit');
 const { body, param, validationResult } = require('express-validator');
 
 // ─── Database pool ────────────────────────────────────────────────────────────
+const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+const databaseUrl = process.env.DATABASE_URL;
+const sessionSecret = process.env.SESSION_SECRET;
+const sslMode = process.env.PGSSLMODE || (isProd ? 'require' : 'prefer');
+let urlSslMode = null;
+
+if (databaseUrl) {
+  try {
+    urlSslMode = new URL(databaseUrl).searchParams.get('sslmode');
+  } catch {
+    throw new Error('DATABASE_URL must be a valid PostgreSQL URL.');
+  }
+}
+
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL must be configured for the shop backend.');
+}
+if (!sessionSecret || Buffer.byteLength(sessionSecret) < 32) {
+  throw new Error('SESSION_SECRET must contain at least 32 bytes.');
+}
+if (isProd && (
+  sslMode === 'disable'
+  || (urlSslMode && !['require', 'verify-ca', 'verify-full'].includes(urlSslMode))
+)) {
+  throw new Error('TLS is required for the shop database connection in production.');
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/fictional_shop_db',
+  connectionString: databaseUrl,
+  ssl: sslMode === 'disable'
+    ? false
+    : sslMode === 'prefer' && !isProd
+      ? undefined
+      : { rejectUnauthorized: true },
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
 });
 
 pool.on('error', (err) => {
-  console.error('[DB] Unexpected pool error:', err.message);
+  console.error('[DB] Unexpected pool error.');
 });
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:8000';
-const isProd = process.env.NODE_ENV === 'production';
-
 app.set('trust proxy', 1);
 
 app.use(cors({
@@ -65,7 +95,7 @@ app.use(session({
     tableName: 'session',
     createTableIfMissing: true,
   }),
-  secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -130,7 +160,11 @@ app.get('/api/health', async (_req, res) => {
       server_time: result.rows[0].server_time,
     });
   } catch (err) {
-    res.status(503).json({ status: 'error', database: 'disconnected', error: err.message });
+    res.status(503).json({
+      status: 'error',
+      database: 'disconnected',
+      error: 'Database connection unavailable.',
+    });
   }
 });
 
@@ -163,7 +197,7 @@ app.post('/api/register',
         res.status(201).json({ user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role } });
       });
     } catch (err) {
-      console.error('[POST /api/register]', err.message);
+      console.error('[POST /api/register] Registration failed.');
       res.status(500).json({ error: 'Registration failed.' });
     }
   }
@@ -199,7 +233,7 @@ app.post('/api/login', loginLimiter,
         res.json({ user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role } });
       });
     } catch (err) {
-      console.error('[POST /api/login]', err.message);
+      console.error('[POST /api/login] Login failed.');
       res.status(500).json({ error: 'Login failed.' });
     }
   }
@@ -251,7 +285,7 @@ app.get('/api/products', async (req, res) => {
     const result = await pool.query(sql, args);
     res.json({ products: result.rows, count: result.rows.length });
   } catch (err) {
-    console.error('[GET /api/products]', err.message);
+    console.error('[GET /api/products] Product lookup failed.');
     res.status(500).json({ error: 'Failed to fetch products.' });
   }
 });
@@ -443,7 +477,7 @@ app.post('/api/orders', requireAuth,
       res.status(201).json({ order, items: lineItems });
     } catch (err) {
       await client.query('ROLLBACK');
-      console.error('[POST /api/orders]', err.message);
+      console.error('[POST /api/orders] Order processing failed.');
       res.status(500).json({ error: 'Order creation failed.' });
     } finally {
       client.release();
@@ -497,7 +531,7 @@ app.post('/api/contact',
       );
       res.status(201).json({ message: 'Your message has been received. Thank you!' });
     } catch (err) {
-      console.error('[POST /api/contact]', err.message);
+      console.error('[POST /api/contact] Contact submission failed.');
       res.status(500).json({ error: 'Failed to save message.' });
     }
   }

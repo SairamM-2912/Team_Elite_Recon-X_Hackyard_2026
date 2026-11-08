@@ -8,6 +8,7 @@ import time
 import os
 from typing import Dict, List, Any, Optional, Tuple
 from app.db.seed_data import DB_PATHS, init_all_databases
+from app.db.sqlite_utils import connect_sqlite
 
 
 class DatabaseConnectionManager:
@@ -29,7 +30,6 @@ class DatabaseConnectionManager:
                 "tls_enabled": True,
                 "latency_ms": 1.2,
                 "active_pool_size": 5,
-                "server_credentials": {"auth_token": "hc_vault_token_9918"}  # Stored server-side only
             },
             "banking": {
                 "id": "banking",
@@ -42,7 +42,6 @@ class DatabaseConnectionManager:
                 "tls_enabled": True,
                 "latency_ms": 1.8,
                 "active_pool_size": 8,
-                "server_credentials": {"auth_token": "bnk_vault_token_4412"}
             },
             "corporate_hr": {
                 "id": "corporate_hr",
@@ -55,7 +54,6 @@ class DatabaseConnectionManager:
                 "tls_enabled": True,
                 "latency_ms": 0.9,
                 "active_pool_size": 4,
-                "server_credentials": {"auth_token": "hr_vault_token_3182"}
             },
             "retail": {
                 "id": "retail",
@@ -68,7 +66,6 @@ class DatabaseConnectionManager:
                 "tls_enabled": True,
                 "latency_ms": 1.4,
                 "active_pool_size": 6,
-                "server_credentials": {"auth_token": "ret_vault_token_7761"}
             },
             "upstream_pg_demo": {
                 "id": "upstream_pg_demo",
@@ -82,7 +79,6 @@ class DatabaseConnectionManager:
                 "tls_enabled": True,
                 "latency_ms": 14.5,
                 "active_pool_size": 0,
-                "server_credentials": {"user": "recon_proxy", "secret_pass": "SuperSecretDbPassword123!"}
             }
         }
         self.active_connection_id = "healthcare"
@@ -140,13 +136,13 @@ class DatabaseConnectionManager:
 
         start = time.perf_counter()
         if not conn.get("is_simulation") and conn.get("db_path"):
+            c = None
             try:
                 db_path = conn["db_path"]
-                c = sqlite3.connect(db_path, timeout=2.0)
+                c = connect_sqlite(db_path)
                 cur = c.cursor()
                 cur.execute("SELECT 1")
                 cur.fetchone()
-                c.close()
                 elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
                 conn["latency_ms"] = elapsed_ms
                 conn["status"] = "ONLINE"
@@ -158,9 +154,16 @@ class DatabaseConnectionManager:
                     "tls_enabled": conn["tls_enabled"],
                     "is_simulation": False
                 }
-            except Exception as e:
+            except sqlite3.Error:
                 conn["status"] = "ERROR"
-                return {"healthy": False, "error": str(e), "status": "ERROR"}
+                return {
+                    "healthy": False,
+                    "error": "Database connection unavailable.",
+                    "status": "ERROR",
+                }
+            finally:
+                if c is not None:
+                    c.close()
         else:
             # Simulated probe for external upstream
             elapsed_ms = round((time.perf_counter() - start) * 1000 + 12.4, 2)
@@ -183,18 +186,21 @@ class DatabaseConnectionManager:
             return 12
 
         db_path = conn_meta["db_path"]
+        c = None
         try:
-            c = sqlite3.connect(db_path, timeout=2.0)
+            c = connect_sqlite(db_path)
             cur = c.cursor()
             # Clean query and strip semicolon
             clean = query.strip().rstrip(";")
             count_sql = f"SELECT COUNT(*) FROM ({clean}) AS sub_est"
             cur.execute(count_sql)
             row = cur.fetchone()
-            c.close()
             return row[0] if row else None
         except Exception:
             return None
+        finally:
+            if c is not None:
+                c.close()
 
     def execute_query_safely(
         self,
@@ -213,11 +219,11 @@ class DatabaseConnectionManager:
 
         db_path = conn_meta["db_path"]
         start = time.perf_counter()
-        c = sqlite3.connect(db_path, timeout=5.0)
-        c.row_factory = sqlite3.Row
-        cur = c.cursor()
-
+        c = None
         try:
+            c = connect_sqlite(db_path)
+            c.row_factory = sqlite3.Row
+            cur = c.cursor()
             cur.execute(query)
             if cur.description:
                 columns = [col[0] for col in cur.description]
@@ -226,11 +232,12 @@ class DatabaseConnectionManager:
                 columns = ["affected_rows"]
                 rows = [{"affected_rows": cur.rowcount}]
             c.commit()
-        except sqlite3.Error as e:
+        except sqlite3.Error:
             columns = ["error"]
-            rows = [{"error": f"Database Execution Error: {str(e)}"}]
+            rows = [{"error": "Database execution failed."}]
         finally:
-            c.close()
+            if c is not None:
+                c.close()
 
         latency_ms = round((time.perf_counter() - start) * 1000, 2)
         return columns, rows, latency_ms

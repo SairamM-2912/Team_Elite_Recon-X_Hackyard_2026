@@ -1,8 +1,10 @@
 """Datasets and Schema Explorer API Routes for RECON-X."""
 import sqlite3
+from contextlib import closing
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any, List
 from app.db.seed_data import DB_PATHS
+from app.db.sqlite_utils import connect_sqlite
 from app.config import SENSITIVE_COLUMNS, CANARY_IDENTIFIERS
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
@@ -50,30 +52,34 @@ def list_datasets():
         db_path = DB_PATHS.get(sector_id)
         table_details = []
         if db_path:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            for tbl in meta["tables"]:
-                cur.execute(f"PRAGMA table_info({tbl})")
-                cols = cur.fetchall()
-                cur.execute(f"SELECT COUNT(*) FROM {tbl}")
-                count = cur.fetchone()[0]
-                
-                col_meta = []
-                for c in cols:
-                    col_name = c[1]
-                    sens = "NONE"
-                    for s_key, s_data in SENSITIVE_COLUMNS.items():
-                        if s_key in col_name.lower():
-                            sens = s_data["level"]
-                            break
-                    col_meta.append({"name": col_name, "type": c[2], "sensitivity": sens})
-                
-                table_details.append({
-                    "table_name": tbl,
-                    "row_count": count,
-                    "columns": col_meta
-                })
-            conn.close()
+            try:
+                with closing(connect_sqlite(db_path)) as conn:
+                    cur = conn.cursor()
+                    for tbl in meta["tables"]:
+                        cur.execute(f'PRAGMA table_info("{tbl}")')
+                        cols = cur.fetchall()
+                        cur.execute(f'SELECT COUNT(*) FROM "{tbl}"')
+                        count = cur.fetchone()[0]
+
+                        col_meta = []
+                        for c in cols:
+                            col_name = c[1]
+                            sens = "NONE"
+                            for s_key, s_data in SENSITIVE_COLUMNS.items():
+                                if s_key in col_name.lower():
+                                    sens = s_data["level"]
+                                    break
+                            col_meta.append({"name": col_name, "type": c[2], "sensitivity": sens})
+
+                        table_details.append({
+                            "table_name": tbl,
+                            "row_count": count,
+                            "columns": col_meta
+                        })
+            except sqlite3.Error:
+                raise HTTPException(
+                    status_code=503, detail="Dataset metadata is unavailable."
+                ) from None
 
         sectors.append({
             "id": sector_id,
@@ -88,18 +94,19 @@ def list_datasets():
 
 @router.get("/{sector}/preview/{table}")
 def preview_table(sector: str, table: str):
-    if sector not in DB_PATHS:
+    metadata = DATASETS_METADATA.get(sector)
+    if metadata is None or table not in metadata["tables"]:
         raise HTTPException(status_code=404, detail="Sector dataset not found")
     db_path = DB_PATHS[sector]
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
     try:
-        cur.execute(f"SELECT * FROM {table} LIMIT 10")
-        rows = [dict(r) for r in cur.fetchall()]
-        cols = [c[0] for c in cur.description] if cur.description else []
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        conn.close()
+        with closing(connect_sqlite(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(f'SELECT * FROM "{table}" LIMIT 10')
+            rows = [dict(r) for r in cur.fetchall()]
+            cols = [c[0] for c in cur.description] if cur.description else []
+    except sqlite3.Error:
+        raise HTTPException(
+            status_code=503, detail="Dataset preview is unavailable."
+        ) from None
     return {"sector": sector, "table": table, "columns": cols, "rows": rows}

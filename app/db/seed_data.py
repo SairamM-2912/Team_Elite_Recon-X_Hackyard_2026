@@ -5,41 +5,62 @@ with realistic relational data, sensitive columns, and deliberate canary honeypo
 """
 import sqlite3
 import os
-import tempfile
-from typing import Dict, Any
+from pathlib import Path
+from app.db.sqlite_utils import connect_sqlite
 
-_is_vercel = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-_base_db_dir = tempfile.gettempdir() if _is_vercel else os.path.dirname(__file__)
+_base_db_dir = Path(
+    os.environ.get("RECONX_DATA_DIR") or Path(__file__).parent
+).expanduser().resolve()
 
 DB_PATHS = {
-    "healthcare": os.path.join(_base_db_dir, "healthcare.db"),
-    "banking": os.path.join(_base_db_dir, "banking.db"),
-    "corporate_hr": os.path.join(_base_db_dir, "corporate_hr.db"),
-    "retail": os.path.join(_base_db_dir, "retail.db")
+    "healthcare": str(_base_db_dir / "healthcare.db"),
+    "banking": str(_base_db_dir / "banking.db"),
+    "corporate_hr": str(_base_db_dir / "corporate_hr.db"),
+    "retail": str(_base_db_dir / "retail.db")
 }
 
 
-def init_all_databases():
-    """Create and seed SQLite databases for all four sectors."""
-    try:
-        os.makedirs(_base_db_dir, exist_ok=True)
-    except OSError:
-        pass
-    _init_healthcare(DB_PATHS["healthcare"])
-    _init_banking(DB_PATHS["banking"])
-    _init_corporate_hr(DB_PATHS["corporate_hr"])
-    _init_retail(DB_PATHS["retail"])
+def init_all_databases(seed_demo: bool | None = None):
+    """Create missing sector tables; seed only on explicit request and if empty."""
+    for db_path in DB_PATHS.values():
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    if seed_demo is None:
+        seed_demo = os.environ.get("RECONX_SEED_DEMO_DATA", "").lower() in {
+            "1", "true", "yes"
+        }
+
+    _init_healthcare(DB_PATHS["healthcare"], seed_demo)
+    _init_banking(DB_PATHS["banking"], seed_demo)
+    _init_corporate_hr(DB_PATHS["corporate_hr"], seed_demo)
+    _init_retail(DB_PATHS["retail"], seed_demo)
 
 
-def _init_healthcare(db_path: str):
-    conn = sqlite3.connect(db_path)
+def _should_seed(cur: sqlite3.Cursor, tables: list[str], seed_demo: bool) -> bool:
+    return seed_demo and all(
+        cur.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone() is None
+        for table in tables
+    )
+
+
+def _open_initialization_db(db_path: str) -> sqlite3.Connection:
+    conn = connect_sqlite(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("BEGIN IMMEDIATE")
+    return conn
+
+
+def _finish_without_seed(conn: sqlite3.Connection) -> None:
+    conn.commit()
+    conn.close()
+
+
+def _init_healthcare(db_path: str, seed_demo: bool = False):
+    conn = _open_initialization_db(db_path)
     cur = conn.cursor()
 
-    cur.execute("DROP TABLE IF EXISTS diagnoses")
-    cur.execute("DROP TABLE IF EXISTS patients")
-
     cur.execute("""
-    CREATE TABLE patients (
+    CREATE TABLE IF NOT EXISTS patients (
         patient_id TEXT PRIMARY KEY,
         full_name TEXT NOT NULL,
         dob TEXT NOT NULL,
@@ -52,7 +73,7 @@ def _init_healthcare(db_path: str):
     """)
 
     cur.execute("""
-    CREATE TABLE diagnoses (
+    CREATE TABLE IF NOT EXISTS diagnoses (
         diagnosis_id TEXT PRIMARY KEY,
         patient_id TEXT NOT NULL,
         icd_code TEXT NOT NULL,
@@ -62,6 +83,10 @@ def _init_healthcare(db_path: str):
         FOREIGN KEY (patient_id) REFERENCES patients(patient_id)
     );
     """)
+
+    if not _should_seed(cur, ["patients", "diagnoses"], seed_demo):
+        _finish_without_seed(conn)
+        return
 
     # Seed 15 realistic patients
     patients = [
@@ -107,15 +132,12 @@ def _init_healthcare(db_path: str):
     conn.close()
 
 
-def _init_banking(db_path: str):
-    conn = sqlite3.connect(db_path)
+def _init_banking(db_path: str, seed_demo: bool = False):
+    conn = _open_initialization_db(db_path)
     cur = conn.cursor()
 
-    cur.execute("DROP TABLE IF EXISTS transactions")
-    cur.execute("DROP TABLE IF EXISTS accounts")
-
     cur.execute("""
-    CREATE TABLE accounts (
+    CREATE TABLE IF NOT EXISTS accounts (
         account_id TEXT PRIMARY KEY,
         customer_name TEXT NOT NULL,
         account_type TEXT NOT NULL,
@@ -126,7 +148,7 @@ def _init_banking(db_path: str):
     """)
 
     cur.execute("""
-    CREATE TABLE transactions (
+    CREATE TABLE IF NOT EXISTS transactions (
         tx_id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL,
         amount REAL NOT NULL,
@@ -135,6 +157,10 @@ def _init_banking(db_path: str):
         FOREIGN KEY (account_id) REFERENCES accounts(account_id)
     );
     """)
+
+    if not _should_seed(cur, ["accounts", "transactions"], seed_demo):
+        _finish_without_seed(conn)
+        return
 
     accounts = [
         ("ACC-5001", "Robert Chen", "Checking", 8450.25, 780, "Downtown SF"),
@@ -171,15 +197,12 @@ def _init_banking(db_path: str):
     conn.close()
 
 
-def _init_corporate_hr(db_path: str):
-    conn = sqlite3.connect(db_path)
+def _init_corporate_hr(db_path: str, seed_demo: bool = False):
+    conn = _open_initialization_db(db_path)
     cur = conn.cursor()
 
-    cur.execute("DROP TABLE IF EXISTS performance_reviews")
-    cur.execute("DROP TABLE IF EXISTS employees")
-
     cur.execute("""
-    CREATE TABLE employees (
+    CREATE TABLE IF NOT EXISTS employees (
         emp_id TEXT PRIMARY KEY,
         full_name TEXT NOT NULL,
         department TEXT NOT NULL,
@@ -191,7 +214,7 @@ def _init_corporate_hr(db_path: str):
     """)
 
     cur.execute("""
-    CREATE TABLE performance_reviews (
+    CREATE TABLE IF NOT EXISTS performance_reviews (
         review_id TEXT PRIMARY KEY,
         emp_id TEXT NOT NULL,
         reviewer TEXT NOT NULL,
@@ -201,6 +224,10 @@ def _init_corporate_hr(db_path: str):
         FOREIGN KEY (emp_id) REFERENCES employees(emp_id)
     );
     """)
+
+    if not _should_seed(cur, ["employees", "performance_reviews"], seed_demo):
+        _finish_without_seed(conn)
+        return
 
     # 10 Engineering employees, suitable for differencing attack demo:
     # Query 1: SELECT SUM(salary) FROM employees WHERE department='Engineering'
@@ -241,15 +268,12 @@ def _init_corporate_hr(db_path: str):
     conn.close()
 
 
-def _init_retail(db_path: str):
-    conn = sqlite3.connect(db_path)
+def _init_retail(db_path: str, seed_demo: bool = False):
+    conn = _open_initialization_db(db_path)
     cur = conn.cursor()
 
-    cur.execute("DROP TABLE IF EXISTS orders")
-    cur.execute("DROP TABLE IF EXISTS customers")
-
     cur.execute("""
-    CREATE TABLE customers (
+    CREATE TABLE IF NOT EXISTS customers (
         cust_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -261,7 +285,7 @@ def _init_retail(db_path: str):
     """)
 
     cur.execute("""
-    CREATE TABLE orders (
+    CREATE TABLE IF NOT EXISTS orders (
         order_id TEXT PRIMARY KEY,
         cust_id TEXT NOT NULL,
         order_total REAL NOT NULL,
@@ -271,6 +295,10 @@ def _init_retail(db_path: str):
         FOREIGN KEY (cust_id) REFERENCES customers(cust_id)
     );
     """)
+
+    if not _should_seed(cur, ["customers", "orders"], seed_demo):
+        _finish_without_seed(conn)
+        return
 
     customers = [
         ("C-801", "Sarah Connor", "sconnor@resistance.net", "555-0101", "Los Angeles", 4250.0, "Platinum"),

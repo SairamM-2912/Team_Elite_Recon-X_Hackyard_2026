@@ -1,5 +1,5 @@
-// Supabase client configuration for RECON-X Frontend
+// Runtime configuration is served from the backend using public values only.
 window.SUPABASE_CONFIG = {
-  url: 'https://nbgdbeacuarhfuzavzfe.supabase.co',
-  publishableKey: 'sb_publishable_vrO65a2-FOo5PL5Xud7Ygg_cVJGRRtz'
+  url: '',
+  publishableKey: ''
 };

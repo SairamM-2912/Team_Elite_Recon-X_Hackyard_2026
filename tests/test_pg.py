@@ -347,6 +347,36 @@ class TestPgReadOnlyConnection:
             )
         connect.assert_not_called()
 
+    def test_database_url_cannot_select_an_unrestricted_user(self, monkeypatch):
+        from unittest.mock import Mock
+        from app.db import pg_service
+
+        connect = Mock()
+        monkeypatch.setenv("PGUSER", "reconx_demo_reader")
+        monkeypatch.setenv(
+            "DATABASE_URL", "postgresql://postgres@db.example.test:5432/reconx"
+        )
+        monkeypatch.setattr(pg_service.psycopg, "connect", connect)
+
+        with pytest.raises(PgServiceError, match="restricted"):
+            pg_service._open_connection()
+        connect.assert_not_called()
+
+    def test_render_postgres_rejects_disabled_tls_before_connecting(self, monkeypatch):
+        from unittest.mock import Mock
+        from app.db import pg_service
+
+        connect = Mock()
+        monkeypatch.setenv("RENDER", "true")
+        monkeypatch.setenv("PGUSER", "reconx_demo_reader")
+        monkeypatch.setenv("PGSSLMODE", "disable")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setattr(pg_service.psycopg, "connect", connect)
+
+        with pytest.raises(PgServiceError, match="TLS is required"):
+            pg_service._open_connection()
+        connect.assert_not_called()
+
     def test_non_readonly_role_is_rejected(self, monkeypatch):
         from app.db import pg_service
 
